@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+venv/
+.venv/
+prodrome.db
+server.log
+.env
+data-service/physionet_data/
