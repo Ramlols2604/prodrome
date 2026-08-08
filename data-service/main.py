@@ -449,6 +449,63 @@ def get_demographics(patient_id: str):
     return d
 
 
+def _signal_trend(points: list[tuple], higher_is_worse: bool = True) -> str:
+    """points is a list of (icu_hour, value) with non-null values, sorted by hour."""
+    if len(points) < 4:
+        return "insufficient_data"
+    points = sorted(points, key=lambda p: p[0])
+    mid = len(points) // 2
+    first_mean = sum(v for _, v in points[:mid]) / mid
+    second_mean = sum(v for _, v in points[mid:]) / (len(points) - mid)
+    if first_mean == 0:
+        if second_mean > 0:
+            return "worsening" if higher_is_worse else "improving"
+        if second_mean < 0:
+            return "improving" if higher_is_worse else "worsening"
+        return "stable"
+    ratio = second_mean / first_mean
+    if ratio > 1.10:
+        return "worsening" if higher_is_worse else "improving"
+    if ratio < 0.90:
+        return "improving" if higher_is_worse else "worsening"
+    return "stable"
+
+
+def compute_trajectory_trend(trajectory: list[dict]) -> dict:
+    """Deterministic first-half vs second-half trend analysis for an encounter."""
+    hr_points = [(r["icu_hour"], r["hr"]) for r in trajectory if r.get("hr") is not None]
+    resp_points = [(r["icu_hour"], r["resp"]) for r in trajectory if r.get("resp") is not None]
+    lactate_points = [(r["icu_hour"], r["lactate"]) for r in trajectory if r.get("lactate") is not None]
+    wbc_points = [(r["icu_hour"], r["wbc"]) for r in trajectory if r.get("wbc") is not None]
+
+    hr_trend = _signal_trend(hr_points)
+    resp_trend = _signal_trend(resp_points)
+    lactate_trend = _signal_trend(lactate_points)
+    wbc_trend = _signal_trend(wbc_points)
+
+    trends = [hr_trend, resp_trend, lactate_trend, wbc_trend]
+    worsening_n = sum(1 for t in trends if t == "worsening")
+    improving_n = sum(1 for t in trends if t == "improving")
+    if worsening_n >= 3:
+        overall = "WORSENING"
+    elif improving_n >= 3:
+        overall = "IMPROVING"
+    elif worsening_n > 0 and improving_n > 0:
+        overall = "MIXED"
+    else:
+        overall = "STABLE"
+
+    return {
+        "hr_trend": hr_trend,
+        "resp_trend": resp_trend,
+        "lactate_trend": lactate_trend,
+        "wbc_trend": wbc_trend,
+        "hours_in_encounter": len(trajectory),
+        "hours_with_sepsis_label": sum(1 for r in trajectory if r.get("sepsis_label") == 1),
+        "overall_trajectory": overall,
+    }
+
+
 @app.get("/patients/{patient_id}/trajectory")
 def get_trajectory_so_far(patient_id: str, up_to_hour: Optional[int] = None):
     """
@@ -467,7 +524,12 @@ def get_trajectory_so_far(patient_id: str, up_to_hour: Optional[int] = None):
     q += " ORDER BY icu_hour"
     rows = conn.execute(q, params).fetchall()
     conn.close()
-    return {"patient_id": patient_id, "trajectory": [dict(r) for r in rows]}
+    trajectory = [dict(r) for r in rows]
+    return {
+        "patient_id": patient_id,
+        "trajectory": trajectory,
+        "trend_analysis": compute_trajectory_trend(trajectory),
+    }
 
 
 @app.get("/cohort/outcomes")

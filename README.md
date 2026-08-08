@@ -55,6 +55,14 @@ prodrome/
             DETERIORATING/CRITICAL) for the Judge to weigh other
             agents against. Validated on p000003 (age 71 → ELEVATED),
             clean output, no correction needed.
+      - [x] Historical Pattern Agent data layer — trajectory trend
+            analysis and cohort outcomes complete. `get_trajectory_so_far`
+            returns deterministic `trend_analysis` (per-signal trends +
+            `overall_trajectory`) in Python, same pattern as vitals/
+            labs/demographics. `get_cohort_outcomes` already had
+            `sample_size` safety from Week 1; no changes needed.
+            Validated: p000001 → all trends stable/STABLE; p000003 →
+            all trends worsening/WORSENING.
 - [ ] Evaluation against labeled ground truth
 - [ ] Deployment (Railway/Render for backend, Vercel for frontend)
 - [ ] Frontend
