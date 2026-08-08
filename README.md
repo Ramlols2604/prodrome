@@ -55,14 +55,21 @@ prodrome/
             DETERIORATING/CRITICAL) for the Judge to weigh other
             agents against. Validated on p000003 (age 71 → ELEVATED),
             clean output, no correction needed.
-      - [x] Historical Pattern Agent data layer — trajectory trend
-            analysis and cohort outcomes complete. `get_trajectory_so_far`
-            returns deterministic `trend_analysis` (per-signal trends +
-            `overall_trajectory`) in Python, same pattern as vitals/
-            labs/demographics. `get_cohort_outcomes` already had
-            `sample_size` safety from Week 1; no changes needed.
-            Validated: p000001 → all trends stable/STABLE; p000003 →
-            all trends worsening/WORSENING.
+      - [x] Historical Pattern Agent (n8n prototype) — complete,
+            including cohort comparison. Deterministic `trend_analysis`
+            in `get_trajectory_so_far`; `get_cohort_outcomes` already
+            had `sample_size` safety. Earlier cohort-tool failures were
+            an n8n `$fromAI` typing bug: untyped/string `min_lactate`
+            with an uninformative auto-generated name let the model
+            pass non-numeric text. Fixed by naming it
+            `min_lactate_threshold`, describing it clearly, and typing
+            it as number. Validated E2E on p000003: 48 hours, 18
+            sepsis-labeled, WORSENING on all four signals, and
+            `get_cohort_outcomes` called with a sensible threshold
+            (2/2 septic + small-sample caveat).
+      All four specialist agents are built and validated in n8n
+      (deterministic data-service + LLM narration only). Next:
+      Judge agent synthesis + dissent score (Week 3).
 - [ ] Evaluation against labeled ground truth
 - [ ] Deployment (Railway/Render for backend, Vercel for frontend)
 - [ ] Frontend
