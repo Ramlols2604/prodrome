@@ -86,6 +86,64 @@ def list_patients(limit: int = 50):
     return [dict(r) for r in rows]
 
 
+def _flag_hr(hr):
+    if hr is None:
+        return "unknown"
+    if hr < 60:
+        return "bradycardia"
+    if hr > 100:
+        return "tachycardia"
+    return "normal"
+
+
+def _flag_map(map_val):
+    if map_val is None:
+        return "unknown"
+    if map_val < 65:
+        return "low_perfusion_concern"
+    return "normal"
+
+
+def _flag_sbp(sbp):
+    if sbp is None:
+        return "unknown"
+    if sbp < 90:
+        return "hypotension"
+    if sbp > 180:
+        return "hypertension_concern"
+    return "normal"
+
+
+def _flag_resp(resp):
+    if resp is None:
+        return "unknown"
+    if resp < 12:
+        return "bradypnea"
+    if resp > 24:
+        return "tachypnea"
+    return "normal"
+
+
+def _flag_temp(temp):
+    if temp is None:
+        return "unknown"
+    if temp < 36:
+        return "hypothermia"
+    if temp > 38.3:
+        return "fever"
+    return "normal"
+
+
+def _vitals_flags(row: dict) -> dict:
+    return {
+        "hr_status": _flag_hr(row.get("hr")),
+        "map_status": _flag_map(row.get("map")),
+        "sbp_status": _flag_sbp(row.get("sbp")),
+        "resp_status": _flag_resp(row.get("resp")),
+        "temp_status": _flag_temp(row.get("temp")),
+    }
+
+
 @app.get("/patients/{patient_id}/vitals")
 def get_vitals_window(patient_id: str, hours_back: int = Query(6, ge=1, le=200),
                        up_to_hour: Optional[int] = None):
@@ -94,6 +152,8 @@ def get_vitals_window(patient_id: str, hours_back: int = Query(6, ge=1, le=200),
     Returns HR, O2Sat, Temp, SBP, MAP, DBP, Resp, EtCO2 for the trailing
     `hours_back` window, ending at `up_to_hour` (defaults to the
     patient's latest recorded hour -- used for replay-at-a-point-in-time).
+    Also returns deterministic normal/abnormal flags per vital so the
+    agent does not have to compare numbers against thresholds itself.
     """
     conn = _get_conn()
     if not _patient_exists(conn, patient_id):
@@ -113,7 +173,23 @@ def get_vitals_window(patient_id: str, hours_back: int = Query(6, ge=1, le=200),
         ORDER BY icu_hour
     """, (patient_id, up_to_hour, up_to_hour - hours_back)).fetchall()
     conn.close()
-    return {"patient_id": patient_id, "up_to_hour": up_to_hour, "window": [dict(r) for r in rows]}
+
+    window = []
+    any_abnormal = False
+    for r in rows:
+        hour = dict(r)
+        flags = _vitals_flags(hour)
+        hour["flags"] = flags
+        if any(v not in ("normal", "unknown") for v in flags.values()):
+            any_abnormal = True
+        window.append(hour)
+
+    return {
+        "patient_id": patient_id,
+        "up_to_hour": up_to_hour,
+        "window": window,
+        "any_abnormal_in_window": any_abnormal,
+    }
 
 
 @app.get("/patients/{patient_id}/labs")
