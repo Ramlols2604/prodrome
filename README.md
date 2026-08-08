@@ -34,6 +34,8 @@ prodrome/
 - [x] `data-service/` — built and tested against real (and synthetic)
       PhysioNet-format data
 - [ ] Agent committee (prototyped in n8n, then ported to Python)
+      - Vitals Agent (n8n prototype) — working, tool-calling to
+        data-service confirmed
 - [ ] Evaluation against labeled ground truth
 - [ ] Deployment (Railway/Render for backend, Vercel for frontend)
 - [ ] Frontend
