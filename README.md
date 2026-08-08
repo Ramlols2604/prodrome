@@ -39,6 +39,15 @@ prodrome/
             `data-service/main.py` after unreliable numeric reasoning
             on both a local 8B model and Groq's 70B. Validated on
             known-stable p000001 and known-critical p000003.
+      - [x] Lab Agent (n8n prototype) — complete; same pattern as Vitals:
+            verdict classification moved from the LLM prompt into
+            deterministic Python (`compute_labs_verdict` in `main.py`)
+            after the LLM misapplied its own explicit rules even on
+            correctly pre-flagged data. LLM role is narration only,
+            citing `computed_verdict`. Known limitation: narration
+            sometimes cites slightly imprecise supporting hour-counts
+            even when the final verdict is correct — an LLM evidence-
+            citation issue, not a correctness issue.
 - [ ] Evaluation against labeled ground truth
 - [ ] Deployment (Railway/Render for backend, Vercel for frontend)
 - [ ] Frontend

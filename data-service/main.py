@@ -144,6 +144,54 @@ def _vitals_flags(row: dict) -> dict:
     }
 
 
+def _is_abnormal_vital_flag(status: str) -> bool:
+    return status not in ("normal", "unknown")
+
+
+def compute_vitals_verdict(window: list[dict]) -> str:
+    """Classify a vitals window as STABLE/WATCH/DETERIORATING/CRITICAL."""
+    n = len(window)
+    if n == 0:
+        return "STABLE"
+    half = n / 2.0
+    flag_keys = ["hr_status", "map_status", "sbp_status", "resp_status", "temp_status"]
+    other_keys = ["hr_status", "map_status", "resp_status", "temp_status"]
+
+    def _count_abnormal(key: str) -> int:
+        return sum(
+            1 for hour in window
+            if _is_abnormal_vital_flag(hour.get("flags", {}).get(key, "unknown"))
+        )
+
+    sbp_hypotension_hours = sum(
+        1 for hour in window
+        if hour.get("flags", {}).get("sbp_status") == "hypotension"
+    )
+    others_over_half = sum(1 for key in other_keys if _count_abnormal(key) > half)
+    if sbp_hypotension_hours > half and others_over_half >= 2:
+        return "CRITICAL"
+
+    simultaneous_3plus = sum(
+        1 for hour in window
+        if sum(
+            1 for key in flag_keys
+            if _is_abnormal_vital_flag(hour.get("flags", {}).get(key, "unknown"))
+        ) >= 3
+    )
+    if simultaneous_3plus > half:
+        return "DETERIORATING"
+
+    any_abnormal = any(
+        _is_abnormal_vital_flag(status)
+        for hour in window
+        for status in hour.get("flags", {}).values()
+    )
+    if any_abnormal:
+        return "WATCH"
+
+    return "STABLE"
+
+
 @app.get("/patients/{patient_id}/vitals")
 def get_vitals_window(patient_id: str, hours_back: int = Query(6, ge=1, le=200),
                        up_to_hour: Optional[int] = None):
@@ -189,7 +237,118 @@ def get_vitals_window(patient_id: str, hours_back: int = Query(6, ge=1, le=200),
         "up_to_hour": up_to_hour,
         "window": window,
         "any_abnormal_in_window": any_abnormal,
+        "computed_verdict": compute_vitals_verdict(window),
     }
+
+
+def _flag_lactate(lactate):
+    if lactate is None:
+        return "not_drawn"
+    if lactate > 4.0:
+        return "critical"
+    if lactate > 2.0:
+        return "elevated"
+    return "normal"
+
+
+def _flag_wbc(wbc):
+    if wbc is None:
+        return "not_drawn"
+    if wbc < 4.0:
+        return "leukopenia"
+    if wbc > 12.0:
+        return "leukocytosis"
+    return "normal"
+
+
+def _flag_creatinine(creatinine):
+    if creatinine is None:
+        return "not_drawn"
+    if creatinine > 1.2:
+        return "elevated"
+    return "normal"
+
+
+def _flag_platelets(platelets):
+    if platelets is None:
+        return "not_drawn"
+    if platelets < 150:
+        return "thrombocytopenia"
+    return "normal"
+
+
+def _flag_bun(bun):
+    if bun is None:
+        return "not_drawn"
+    if bun > 20:
+        return "elevated"
+    return "normal"
+
+
+def _labs_flags(row: dict) -> dict:
+    return {
+        "lactate_status": _flag_lactate(row.get("lactate")),
+        "wbc_status": _flag_wbc(row.get("wbc")),
+        "creatinine_status": _flag_creatinine(row.get("creatinine")),
+        "platelets_status": _flag_platelets(row.get("platelets")),
+        "bun_status": _flag_bun(row.get("bun")),
+    }
+
+
+def _is_abnormal_lab_flag(status: str) -> bool:
+    return status not in ("normal", "not_drawn")
+
+
+def _hour_had_any_lab(hour: dict) -> bool:
+    return any(v is not None for k, v in hour.items() if k not in ("icu_hour", "flags"))
+
+
+def compute_labs_verdict(window: list[dict], labs_drawn_count: int) -> str:
+    """Classify a labs window as STABLE/WATCH/DETERIORATING/CRITICAL."""
+    if labs_drawn_count == 0:
+        return "STABLE"
+
+    drawn = [hour for hour in window if _hour_had_any_lab(hour)]
+    half = labs_drawn_count / 2.0
+    lab_keys = [
+        "lactate_status", "wbc_status", "creatinine_status",
+        "platelets_status", "bun_status",
+    ]
+    other_keys = ["wbc_status", "creatinine_status", "platelets_status", "bun_status"]
+
+    lactate_critical_hours = sum(
+        1 for hour in drawn
+        if hour.get("flags", {}).get("lactate_status") == "critical"
+    )
+    others_over_half = sum(
+        1 for key in other_keys
+        if sum(
+            1 for hour in drawn
+            if _is_abnormal_lab_flag(hour.get("flags", {}).get(key, "not_drawn"))
+        ) > half
+    )
+    if lactate_critical_hours > half and others_over_half >= 1:
+        return "CRITICAL"
+
+    simultaneous_2plus = sum(
+        1 for hour in drawn
+        if sum(
+            1 for key in lab_keys
+            if _is_abnormal_lab_flag(hour.get("flags", {}).get(key, "not_drawn"))
+        ) >= 2
+    )
+    if simultaneous_2plus > half:
+        return "DETERIORATING"
+
+    any_abnormal = any(
+        _is_abnormal_lab_flag(hour.get("flags", {}).get(key, "not_drawn"))
+        for hour in drawn
+        for key in lab_keys
+    )
+    if any_abnormal:
+        return "WATCH"
+
+    return "STABLE"
 
 
 @app.get("/patients/{patient_id}/labs")
@@ -200,6 +359,8 @@ def get_labs_window(patient_id: str, hours_back: int = Query(12, ge=1, le=200),
     vitals, so a longer default window is used. Missing values are
     returned as null -- the Lab Agent should treat sparse labs as
     meaningful, not silently fill them in.
+    Also returns deterministic normal/abnormal flags for key labs so the
+    agent does not have to compare numbers against thresholds itself.
     """
     conn = _get_conn()
     if not _patient_exists(conn, patient_id):
@@ -224,13 +385,28 @@ def get_labs_window(patient_id: str, hours_back: int = Query(12, ge=1, le=200),
     """, (patient_id, up_to_hour, up_to_hour - hours_back)).fetchall()
     conn.close()
 
-    non_null_rows = [dict(r) for r in rows if any(v is not None for k, v in dict(r).items() if k != "icu_hour")]
+    window = []
+    any_abnormal = False
+    labs_drawn_count = 0
+    for r in rows:
+        hour = dict(r)
+        flags = _labs_flags(hour)
+        hour["flags"] = flags
+        if any(v is not None for k, v in hour.items() if k not in ("icu_hour", "flags")):
+            labs_drawn_count += 1
+        if any(v not in ("normal", "not_drawn") for v in flags.values()):
+            any_abnormal = True
+        window.append(hour)
+
     return {
         "patient_id": patient_id,
         "up_to_hour": up_to_hour,
-        "window": [dict(r) for r in rows],
-        "hours_with_any_lab_drawn": len(non_null_rows),
+        "window": window,
+        "hours_with_any_lab_drawn": labs_drawn_count,
+        "labs_drawn_count": labs_drawn_count,
         "hours_requested": hours_back,
+        "any_abnormal_labs_in_window": any_abnormal,
+        "computed_verdict": compute_labs_verdict(window, labs_drawn_count),
     }
 
 
