@@ -49,13 +49,13 @@ emerged directly from testing — see *Key Finding* below.
 |---|---|---|
 | Vitals | ✅ Complete | Validated on known-stable (`p000001`) and known-critical (`p000003`) patients |
 | Lab | ✅ Complete | Validated on `p000001` (STABLE) and `p000003` (CRITICAL) |
-| Demographic/Risk | ✅ Complete | Outputs a `BASELINE RISK` level (LOW/MODERATE/ELEVATED/HIGH), not a clinical verdict — used as context for the Judge, not a vote |
+| Demographic/Risk | ✅ Complete | Outputs a `BASELINE RISK` level (LOW/MODERATE/ELEVATED/HIGH), not a rule-based STABLE/WATCH/DETERIORATING/CRITICAL classification — used as context for the Judge, not a vote |
 | Historical Pattern | ✅ Complete | Validated end-to-end including population cohort comparison |
 
 ### Key finding: LLM threshold reasoning is unreliable, even with correct data
 
 Initial agent prompts asked the LLM to compare raw values against
-stated clinical thresholds (e.g. "is HR > 100?") directly in natural
+stated project-defined thresholds (e.g. "is HR > 100?") directly in natural
 language. Testing against known-stable and known-deteriorating patients
 surfaced consistent failures:
 
@@ -71,10 +71,16 @@ deterministic Python functions (`compute_vitals_verdict`,
 `compute_labs_verdict`, `compute_baseline_risk`, `compute_trajectory_trend`
 in `data-service/main.py`). Each data-service response now includes
 pre-computed `flags` and a `computed_verdict`. Agent prompts were
-rewritten so the LLM's only job is to explain, in clinical language,
-why an already-correct verdict makes sense — never to derive it. This
-made every subsequent agent's output reliably correct on the same test
-patients.
+rewritten so the LLM's only job is to explain, in plain language,
+why the rule-based classification matches the flagged data — never to
+derive it. This made every subsequent agent's output reliably consistent
+with the defined ruleset on the same test patients.
+
+These numeric cutoffs (HR > 100, MAP < 65, lactate > 2.0, etc.) are
+**project-defined rules for a research/portfolio system**, not clinically
+validated decision criteria. HR, MAP, lactate, and related signals are
+clinically meaningful vitals/labs to track; the specific thresholds and
+STABLE/WATCH/DETERIORATING/CRITICAL mapping are ours.
 
 **Known limitation:** even in a narration-only role, LLM output
 occasionally cites slightly imprecise supporting evidence (e.g. an

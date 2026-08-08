@@ -203,7 +203,8 @@ def get_vitals_window(patient_id: str, hours_back: int = Query(6, ge=1, le=200),
     `hours_back` window, ending at `up_to_hour` (defaults to the
     patient's latest recorded hour -- used for replay-at-a-point-in-time).
     Also returns deterministic normal/abnormal flags per vital so the
-    agent does not have to compare numbers against thresholds itself.
+    agent does not have to compare numbers against project-defined
+    thresholds itself.
     """
     conn = _get_conn()
     if not _patient_exists(conn, patient_id):
@@ -362,7 +363,8 @@ def get_labs_window(patient_id: str, hours_back: int = Query(12, ge=1, le=200),
     returned as null -- the Lab Agent should treat sparse labs as
     meaningful, not silently fill them in.
     Also returns deterministic normal/abnormal flags for key labs so the
-    agent does not have to compare numbers against thresholds itself.
+    agent does not have to compare numbers against project-defined
+    thresholds itself.
     """
     conn = _get_conn()
     if not _patient_exists(conn, patient_id):
