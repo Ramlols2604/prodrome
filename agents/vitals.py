@@ -1,6 +1,7 @@
 """Vitals Agent: fetch deterministic flags/verdict, narrate with Groq."""
 
 import json
+import logging
 import re
 import warnings
 
@@ -58,6 +59,7 @@ by the value of computed_verdict, verbatim.
 """.strip()
 
 VERDICT_RE = re.compile(r"VERDICT:\s*(\w+)", re.IGNORECASE)
+logger = logging.getLogger(__name__)
 
 
 def _fallback_verdict_from_flags(raw_data: dict) -> str:
@@ -94,11 +96,20 @@ async def run_vitals_agent(
     narration = await call_groq(VITALS_SYSTEM_PROMPT, user_message)
 
     match = VERDICT_RE.search(narration)
-    extracted = match.group(1).upper() if match else computed
+    llm_verdict = match.group(1).upper() if match else None
+    verdict_consistent = llm_verdict == computed.upper() if llm_verdict else False
+    if not verdict_consistent:
+        logger.warning(
+            "LLM verdict mismatch: expected=%s got=%s",
+            computed,
+            llm_verdict,
+        )
 
     return {
         "agent": "vitals",
-        "verdict": extracted,
+        "verdict": computed,
+        "llm_verdict": llm_verdict,
+        "verdict_consistent": verdict_consistent,
         "narration": narration,
         "raw_data": raw_data,
     }
