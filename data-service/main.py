@@ -65,16 +65,18 @@ def health():
 @app.get("/patients")
 def list_patients(limit: int = 50):
     """
-    Lists patients with a quick summary -- max ICU hour reached and
-    whether they were ever labeled septic. Used by the frontend to
-    populate a demo patient picker, and by the Historical Pattern
-    agent's cohort queries.
+    Lists patients with encounter metadata only (max ICU hour, age,
+    gender). Used by the frontend to populate a demo patient picker.
+    Do not return sepsis_label / ever_septic here -- that is ground
+    truth and must not leak to agents if this endpoint is ever added
+    to a tool list.
+    # Any "interesting demo case" curation for the frontend picker
+    # should be a hardcoded demo-patient list, not a live sepsis_label query.
     """
     conn = _get_conn()
     rows = conn.execute("""
         SELECT patient_id,
                MAX(icu_hour) AS max_hour,
-               MAX(sepsis_label) AS ever_septic,
                MIN(age) AS age,
                MIN(gender) AS gender
         FROM hourly_records
@@ -501,7 +503,6 @@ def compute_trajectory_trend(trajectory: list[dict]) -> dict:
         "lactate_trend": lactate_trend,
         "wbc_trend": wbc_trend,
         "hours_in_encounter": len(trajectory),
-        "hours_with_sepsis_label": sum(1 for r in trajectory if r.get("sepsis_label") == 1),
         "overall_trajectory": overall,
     }
 
@@ -516,7 +517,7 @@ def get_trajectory_so_far(patient_id: str, up_to_hour: Optional[int] = None):
     if not _patient_exists(conn, patient_id):
         conn.close()
         raise HTTPException(404, f"Unknown patient_id: {patient_id}")
-    q = "SELECT icu_hour, hr, resp, lactate, wbc, sepsis_label FROM hourly_records WHERE patient_id = ?"
+    q = "SELECT icu_hour, hr, resp, lactate, wbc FROM hourly_records WHERE patient_id = ?"
     params = [patient_id]
     if up_to_hour is not None:
         q += " AND icu_hour <= ?"
@@ -584,6 +585,7 @@ def get_cohort_outcomes(min_lactate: Optional[float] = None,
     }
 
 
+# EVALUATION ONLY -- never expose this endpoint's URL to any agent's tool list.
 @app.get("/patients/{patient_id}/ground_truth")
 def get_ground_truth(patient_id: str):
     """
