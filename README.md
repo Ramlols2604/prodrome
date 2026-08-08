@@ -48,6 +48,13 @@ prodrome/
             sometimes cites slightly imprecise supporting hour-counts
             even when the final verdict is correct — an LLM evidence-
             citation issue, not a correctness issue.
+      - [x] Demographic/Risk Agent (n8n prototype) — complete; baseline
+            risk level computed deterministically in `main.py`
+            (`compute_baseline_risk`), LLM narration/context only.
+            Outputs a BASELINE RISK level (not STABLE/WATCH/
+            DETERIORATING/CRITICAL) for the Judge to weigh other
+            agents against. Validated on p000003 (age 71 → ELEVATED),
+            clean output, no correction needed.
 - [ ] Evaluation against labeled ground truth
 - [ ] Deployment (Railway/Render for backend, Vercel for frontend)
 - [ ] Frontend

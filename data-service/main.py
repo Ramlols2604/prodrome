@@ -410,6 +410,26 @@ def get_labs_window(patient_id: str, hours_back: int = Query(12, ge=1, le=200),
     }
 
 
+def compute_baseline_risk(age: float, icu_type: str) -> dict:
+    """Deterministic baseline risk from age (icu_type reserved for later use)."""
+    if age >= 80:
+        age_risk_category = "high"
+        baseline_risk_level = "HIGH"
+    elif age >= 65:
+        age_risk_category = "elevated"
+        baseline_risk_level = "ELEVATED"
+    elif age >= 40:
+        age_risk_category = "standard"
+        baseline_risk_level = "MODERATE"
+    else:
+        age_risk_category = "standard"
+        baseline_risk_level = "LOW"
+    return {
+        "age_risk_category": age_risk_category,
+        "baseline_risk_level": baseline_risk_level,
+    }
+
+
 @app.get("/patients/{patient_id}/demographics")
 def get_demographics(patient_id: str):
     """Tool endpoint for the Demographic/Risk Agent."""
@@ -425,6 +445,7 @@ def get_demographics(patient_id: str):
     d["gender_label"] = "male" if d["gender"] == 1 else "female"
     d["icu_type"] = "MICU/SICU (Unit1)" if d.get("unit1") == 1 else (
         "Cardiac/Surgical (Unit2)" if d.get("unit2") == 1 else "unspecified")
+    d["risk_assessment"] = compute_baseline_risk(d["age"], d["icu_type"])
     return d
 
 
