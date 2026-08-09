@@ -1,5 +1,10 @@
 import type React from "react"
+import type { Agent, Severity } from "../types"
+import { SEVERITY_ORDER } from "../types"
+import { severityColor, severityDim, severityBorder, dissentColor } from "../lib/colors"
 import ProdromeWordmark from "./ProdromeWordmark"
+import SeverityBadge from "./SeverityBadge"
+import AgentIcon from "./AgentIcon"
 
 export default function AboutPage({ onBack }: { onBack: () => void }) { // v2 — spec update
   const mono = "var(--font-mono)"

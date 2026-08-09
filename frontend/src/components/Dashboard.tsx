@@ -1,7 +1,9 @@
-import { useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { Search, ArrowUpDown } from "lucide-react"
+import { useVirtualizer } from "@tanstack/react-virtual"
 import type { Patient, Severity } from "../types"
-import { patients, SEVERITY_ORDER } from "../data/patients"
+import { SEVERITY_ORDER } from "../types"
+import { fetchSummaries, summaryToPatient } from "../api"
 import { severityColor } from "../lib/colors"
 import PatientCard from "./PatientCard"
 import ProdromeWordmark from "./ProdromeWordmark"
@@ -10,10 +12,34 @@ import LiveStatusBar from "./LiveStatusBar"
 type SortKey = "severity" | "dissent" | "recent"
 
 export default function Dashboard({ onSelect, onAbout }: { onSelect: (p: Patient) => void; onAbout: () => void }) {
+  const [patients, setPatients] = useState<Patient[]>([])
+  const [listLoading, setListLoading] = useState(true)
+  const [listError, setListError] = useState<string | null>(null)
   const [query, setQuery] = useState("")
   const [filterVerdict, setFilterVerdict] = useState<Severity | "ALL">("ALL")
   const [sortKey, setSortKey] = useState<SortKey>("severity")
   const [sortOpen, setSortOpen] = useState(false)
+  const listRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    fetchSummaries()
+      .then((rows) => {
+        if (!cancelled) {
+          setPatients(rows.map(summaryToPatient))
+          setListLoading(false)
+        }
+      })
+      .catch((err: Error) => {
+        if (!cancelled) {
+          setListError(err.message || "Failed to load patients")
+          setListLoading(false)
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const sortLabels: Record<SortKey, string> = {
     severity: "Severity",
@@ -21,22 +47,34 @@ export default function Dashboard({ onSelect, onAbout }: { onSelect: (p: Patient
     recent: "Most Recent",
   }
 
-  const filtered = patients
-    .filter((p) => {
-      const matchFilter = filterVerdict === "ALL" || p.verdict === filterVerdict
-      const q = query.toLowerCase()
-      const matchSearch =
-        !q ||
-        p.id.toLowerCase().includes(q) ||
-        p.verdict.toLowerCase().includes(q) ||
-        p.primaryDriver.toLowerCase().includes(q)
-      return matchFilter && matchSearch
-    })
-    .sort((a, b) => {
-      if (sortKey === "severity") return SEVERITY_ORDER[b.verdict] - SEVERITY_ORDER[a.verdict]
-      if (sortKey === "dissent") return b.dissentScore - a.dissentScore
-      return b.icuHour - a.icuHour
-    })
+  const filtered = useMemo(
+    () =>
+      patients
+        .filter((p) => {
+          const matchFilter = filterVerdict === "ALL" || p.verdict === filterVerdict
+          const q = query.toLowerCase()
+          const matchSearch =
+            !q ||
+            p.id.toLowerCase().includes(q) ||
+            p.verdict.toLowerCase().includes(q) ||
+            p.primaryDriver.toLowerCase().includes(q)
+          return matchFilter && matchSearch
+        })
+        .sort((a, b) => {
+          if (sortKey === "severity") return SEVERITY_ORDER[b.verdict] - SEVERITY_ORDER[a.verdict]
+          if (sortKey === "dissent") return b.dissentScore - a.dissentScore
+          return b.icuHour - a.icuHour
+        }),
+    [patients, filterVerdict, query, sortKey],
+  )
+
+  const virtualizer = useVirtualizer({
+    count: filtered.length,
+    getScrollElement: () => listRef.current,
+    estimateSize: () => 128,
+    overscan: 10,
+    gap: 8,
+  })
 
   const filterPills: Array<{ label: string; value: Severity | "ALL" }> = [
     { label: "All", value: "ALL" },
@@ -82,7 +120,7 @@ export default function Dashboard({ onSelect, onAbout }: { onSelect: (p: Patient
             ICU Patient Monitor
           </h1>
           <p style={{ fontSize: "12px", color: "rgba(255,255,255,0.28)", margin: 0 }}>
-            {patients.length} patients · urgency-first · committee assessments updated continuously
+            {listLoading ? "Loading…" : `${patients.length} patients`} · urgency-first · committee assessments updated continuously
           </p>
         </div>
 
@@ -223,20 +261,63 @@ export default function Dashboard({ onSelect, onAbout }: { onSelect: (p: Patient
           })}
         </div>
 
-        {/* Patient list — single column, full width */}
-        <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-          {filtered.map((p) => (
-            <PatientCard key={p.id} patient={p} onClick={() => onSelect(p)} />
-          ))}
-        </div>
+        {listError && (
+          <div style={{ textAlign: "center", padding: "48px 0", color: "#f97316", fontSize: "13px" }}>
+            {listError}
+          </div>
+        )}
 
-        {filtered.length === 0 && (
+        {listLoading && (
+          <div style={{ textAlign: "center", padding: "48px 0", color: "rgba(255,255,255,0.18)", fontSize: "13px" }}>
+            Loading patient summaries…
+          </div>
+        )}
+
+        {!listLoading && !listError && filtered.length === 0 && (
           <div style={{ textAlign: "center", padding: "48px 0", color: "rgba(255,255,255,0.18)", fontSize: "13px" }}>
             No patients match the current filter.
+          </div>
+        )}
+
+        {!listLoading && !listError && filtered.length > 0 && (
+          <div
+            ref={listRef}
+            style={{
+              height: "calc(100vh - 280px)",
+              minHeight: "360px",
+              overflow: "auto",
+            }}
+          >
+            <div
+              style={{
+                height: `${virtualizer.getTotalSize()}px`,
+                width: "100%",
+                position: "relative",
+              }}
+            >
+              {virtualizer.getVirtualItems().map((vi) => {
+                const p = filtered[vi.index]
+                return (
+                  <div
+                    key={p.id}
+                    data-index={vi.index}
+                    ref={virtualizer.measureElement}
+                    style={{
+                      position: "absolute",
+                      top: 0,
+                      left: 0,
+                      width: "100%",
+                      transform: `translateY(${vi.start}px)`,
+                    }}
+                  >
+                    <PatientCard patient={p} onClick={() => onSelect(p)} />
+                  </div>
+                )
+              })}
+            </div>
           </div>
         )}
       </div>
     </div>
   )
 }
-

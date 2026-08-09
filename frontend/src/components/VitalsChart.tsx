@@ -10,9 +10,10 @@ import {
   ReferenceArea,
   ResponsiveContainer,
 } from "recharts"
-import type { ExtendedSeries } from "../types"
+import type { ExtendedSeries, Severity } from "../types"
 import { generateTimeline, extendedProfiles } from "../data/patients"
 import { severityDim } from "../lib/colors"
+import type { ChartPoint } from "../api"
 
 const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: Array<{ name: string; value: number; color: string }>; label?: number }) => {
   if (!active || !payload?.length) return null
@@ -57,11 +58,23 @@ function mergeExtended(base: ReturnType<typeof generateTimeline>, ext: ExtendedS
   }))
 }
 
-export default function VitalsChart({ patientId, icuHour }: { patientId: string; icuHour: number }) {
-  const baseData = generateTimeline(patientId, icuHour)
-  const ext = extendedProfiles[patientId]
-  const data = mergeExtended(baseData, ext)
-  const regions = baseData[0]?.regions || []
+export default function VitalsChart({
+  patientId,
+  icuHour,
+  chartData,
+  verdict,
+}: {
+  patientId: string
+  icuHour: number
+  chartData?: ChartPoint[]
+  verdict?: Severity
+}) {
+  const baseData = chartData ? null : generateTimeline(patientId, icuHour)
+  const ext = chartData ? undefined : extendedProfiles[patientId]
+  const data = chartData ?? mergeExtended(baseData!, ext)
+  const regions = chartData
+    ? [{ start: chartData[0]?.hour ?? 0, end: icuHour, verdict: verdict ?? ("WATCH" as Severity) }]
+    : baseData?.[0]?.regions || []
   const [expanded, setExpanded] = useState(false)
   const [active, setActive] = useState<Set<VitalsSeries>>(new Set(["hr", "map", "lactate"]))
 

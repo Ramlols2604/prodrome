@@ -1,7 +1,15 @@
 import { useEffect, useState } from "react"
 import { BrowserRouter, Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom"
-import type { Patient } from "./types"
-import { patients } from "./data/patients"
+import type { Patient, PatientAnalytics } from "./types"
+import type { ChartPoint } from "./api"
+import {
+  applyCommitteeNarration,
+  fetchCommittee,
+  fetchSnapshot,
+  snapshotToAnalytics,
+  snapshotToChart,
+  summaryToPatient,
+} from "./api"
 import Dashboard from "./components/Dashboard"
 import PatientDetail from "./components/PatientDetail"
 import AboutPage from "./components/AboutPage"
@@ -19,23 +27,100 @@ function DashboardPage() {
 function PatientDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const patient = patients.find((p) => p.id === id)
-  const [loading, setLoading] = useState(true)
+  const [patient, setPatient] = useState<Patient | null>(null)
+  const [analytics, setAnalytics] = useState<PatientAnalytics | undefined>()
+  const [chartData, setChartData] = useState<ChartPoint[] | undefined>()
+  const [snapshotLoading, setSnapshotLoading] = useState(true)
+  const [narrationLoading, setNarrationLoading] = useState(true)
+  const [notFound, setNotFound] = useState(false)
 
   useEffect(() => {
-    setLoading(true)
-    const t = setTimeout(() => setLoading(false), 2200)
-    return () => clearTimeout(t)
+    if (!id) return
+    let cancelled = false
+    setPatient(null)
+    setSnapshotLoading(true)
+    setNarrationLoading(true)
+    setNotFound(false)
+
+    ;(async () => {
+      try {
+        const snap = await fetchSnapshot(id)
+        if (cancelled) return
+        const p = summaryToPatient(snap)
+        setPatient(p)
+        setAnalytics(snapshotToAnalytics(snap))
+        setChartData(snapshotToChart(snap))
+        setSnapshotLoading(false)
+        try {
+          const committee = await fetchCommittee(id)
+          if (cancelled) return
+          setPatient(applyCommitteeNarration(p, committee))
+        } catch {
+          /* deterministic UI still works without narration */
+        } finally {
+          if (!cancelled) setNarrationLoading(false)
+        }
+      } catch {
+        if (!cancelled) {
+          setNotFound(true)
+          setSnapshotLoading(false)
+          setNarrationLoading(false)
+        }
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
   }, [id])
 
-  if (!patient) return <Navigate to="/" replace />
+  async function refreshNarration() {
+    if (!id) return
+    setNarrationLoading(true)
+    try {
+      const snap = await fetchSnapshot(id)
+      const committee = await fetchCommittee(id, true)
+      setPatient(applyCommitteeNarration(summaryToPatient(snap), committee))
+      setAnalytics(snapshotToAnalytics(snap))
+      setChartData(snapshotToChart(snap))
+    } finally {
+      setNarrationLoading(false)
+    }
+  }
+
+  if (notFound) return <Navigate to="/" replace />
+  if (!patient) {
+    return (
+      <PatientDetail
+        patient={{
+          id: id ?? "",
+          age: 0,
+          sex: "",
+          icuHour: 0,
+          verdict: "WATCH",
+          dissentScore: 0,
+          committeeStatus: "Majority",
+          primaryDriver: "",
+          agents: [],
+          judgeSynthesis: "",
+        }}
+        onBack={() => navigate("/")}
+        onAbout={() => navigate("/about")}
+        loading
+      />
+    )
+  }
 
   return (
     <PatientDetail
       patient={patient}
       onBack={() => navigate("/")}
       onAbout={() => navigate("/about")}
-      loading={loading}
+      loading={snapshotLoading}
+      narrationLoading={narrationLoading}
+      analytics={analytics}
+      chartData={chartData}
+      onRefresh={refreshNarration}
     />
   )
 }

@@ -5,13 +5,9 @@ import type {
   HourlyPoint,
   ExtendedSeries,
 } from "../types"
+import { SEVERITY_ORDER } from "../types"
 
-export const SEVERITY_ORDER: Record<Severity, number> = {
-  STABLE: 0,
-  WATCH: 1,
-  DETERIORATING: 2,
-  CRITICAL: 3,
-}
+export { SEVERITY_ORDER }
 
 export const patients: Patient[] = [
   {

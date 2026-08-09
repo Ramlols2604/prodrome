@@ -11,3 +11,4 @@ data-service/eval_data/
 data-service/temporal_forecast_dataset.csv
 data-service/temporal_forecast_dataset_v2.csv
 frontend/node_modules/
+agents/llm_cache.sqlite

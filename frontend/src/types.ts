@@ -1,5 +1,12 @@
 export type Severity = "STABLE" | "WATCH" | "DETERIORATING" | "CRITICAL"
 
+export const SEVERITY_ORDER: Record<Severity, number> = {
+  STABLE: 0,
+  WATCH: 1,
+  DETERIORATING: 2,
+  CRITICAL: 3,
+}
+
 export interface Agent {
   id: string
   name: string

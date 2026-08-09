@@ -15,10 +15,12 @@ Run:
 
 Test:
     curl http://localhost:8000/patients
+    curl http://localhost:8000/patients/summary
     curl http://localhost:8000/patients/p000001/vitals?hours_back=6
 """
 
 import sqlite3
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -26,6 +28,11 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 from data_loader import DB_PATH
+
+_AGENTS_DIR = Path(__file__).resolve().parents[1] / "agents"
+if str(_AGENTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_AGENTS_DIR))
+from judge import compute_committee_verdict  # noqa: E402
 
 app = FastAPI(title="Prodrome Data Service", version="0.1.0")
 
@@ -678,6 +685,197 @@ def get_cohort_outcomes(min_lactate: Optional[float] = None,
             "age_min": age_min, "age_max": age_max,
         },
     }
+
+
+VITALS_HOURS_BACK = 6
+LABS_HOURS_BACK = 12
+
+_SUMMARY_COLS = """
+    patient_id, icu_hour, age, gender, unit1, unit2,
+    hr, o2sat, temp, sbp, map, dbp, resp, etco2,
+    base_excess, hco3, fio2, ph, paco2, sao2, ast, bun,
+    alkalinephos, calcium, chloride, creatinine, bilirubin_direct,
+    glucose, lactate, magnesium, phosphate, potassium,
+    bilirubin_total, troponin_i, hct, hgb, ptt, wbc, fibrinogen,
+    platelets
+"""
+
+_LAB_VALUE_KEYS = [
+    "base_excess", "hco3", "fio2", "ph", "paco2", "sao2", "ast", "bun",
+    "alkalinephos", "calcium", "chloride", "creatinine", "bilirubin_direct",
+    "glucose", "lactate", "magnesium", "phosphate", "potassium",
+    "bilirubin_total", "troponin_i", "hct", "hgb", "ptt", "wbc", "fibrinogen",
+    "platelets",
+]
+
+
+def _committee_status(dissent_score: float) -> str:
+    if dissent_score <= 0:
+        return "Consensus"
+    if dissent_score <= 33.3:
+        return "Majority"
+    if dissent_score <= 66.7:
+        return "Contested"
+    return "Split"
+
+
+def _fmt_num(val) -> Optional[str]:
+    if val is None:
+        return None
+    if isinstance(val, float):
+        if val == int(val):
+            return str(int(val))
+        return f"{val:.1f}"
+    return str(val)
+
+
+def _primary_driver(vitals_window: list[dict], labs_window: list[dict]) -> str:
+    parts: list[str] = []
+    if vitals_window:
+        last = vitals_window[-1]
+        flags = last.get("flags") or {}
+        for label, key, flag_key, unit in (
+            ("HR", "hr", "hr_status", " bpm"),
+            ("MAP", "map", "map_status", " mmHg"),
+            ("SBP", "sbp", "sbp_status", " mmHg"),
+            ("Resp", "resp", "resp_status", "/min"),
+            ("Temp", "temp", "temp_status", "°C"),
+        ):
+            status = flags.get(flag_key, "unknown")
+            if _is_abnormal_vital_flag(status):
+                val = _fmt_num(last.get(key))
+                pretty = status.replace("_", " ")
+                parts.append(f"{label} {val}{unit} ({pretty})" if val else f"{label} ({pretty})")
+    drawn = [h for h in labs_window if _hour_had_any_lab(h)]
+    if drawn:
+        last = drawn[-1]
+        flags = last.get("flags") or {}
+        for label, key, flag_key, unit in (
+            ("Lactate", "lactate", "lactate_status", " mmol/L"),
+            ("WBC", "wbc", "wbc_status", " k/μL"),
+            ("Creatinine", "creatinine", "creatinine_status", " mg/dL"),
+            ("Platelets", "platelets", "platelets_status", " k/μL"),
+            ("BUN", "bun", "bun_status", " mg/dL"),
+        ):
+            status = flags.get(flag_key, "not_drawn")
+            if _is_abnormal_lab_flag(status):
+                val = _fmt_num(last.get(key))
+                pretty = status.replace("_", " ")
+                parts.append(f"{label} {val}{unit} ({pretty})" if val else f"{label} ({pretty})")
+    if not parts:
+        return "No abnormal flags in the current window"
+    return "; ".join(parts[:4])
+
+
+def _windows_for_patient(hours: list[dict], max_hour: int):
+    vitals_start = max_hour - VITALS_HOURS_BACK
+    labs_start = max_hour - LABS_HOURS_BACK
+    vitals_window = []
+    labs_window = []
+    for h in hours:
+        icu_hour = h["icu_hour"]
+        if icu_hour <= max_hour and icu_hour > vitals_start:
+            v = {k: h.get(k) for k in ("icu_hour", "hr", "o2sat", "temp", "sbp", "map", "dbp", "resp", "etco2")}
+            v["flags"] = _vitals_flags(v)
+            vitals_window.append(v)
+        if icu_hour <= max_hour and icu_hour > labs_start:
+            lab = {"icu_hour": icu_hour, **{k: h.get(k) for k in _LAB_VALUE_KEYS}}
+            lab["flags"] = _labs_flags(lab)
+            labs_window.append(lab)
+    trajectory = [
+        {
+            "icu_hour": h["icu_hour"],
+            "hr": h.get("hr"),
+            "resp": h.get("resp"),
+            "lactate": h.get("lactate"),
+            "wbc": h.get("wbc"),
+        }
+        for h in hours
+        if h["icu_hour"] <= max_hour
+    ]
+    return vitals_window, labs_window, trajectory
+
+
+def _icu_type_from_row(row: dict) -> str:
+    if row.get("unit1") == 1:
+        return "MICU/SICU (Unit1)"
+    if row.get("unit2") == 1:
+        return "Cardiac/Surgical (Unit2)"
+    return "unspecified"
+
+
+def _summarize_patient(patient_id: str, hours: list[dict], include_windows: bool = False) -> dict:
+    max_hour = max(h["icu_hour"] for h in hours)
+    age = next((h["age"] for h in hours if h.get("age") is not None), 0) or 0
+    gender = next((h["gender"] for h in hours if h.get("gender") is not None), 0)
+    vitals_window, labs_window, trajectory = _windows_for_patient(hours, max_hour)
+    vitals_verdict = compute_vitals_verdict(vitals_window)
+    labs_drawn = sum(1 for h in labs_window if _hour_had_any_lab(h))
+    labs_verdict = compute_labs_verdict(labs_window, labs_drawn)
+    trend = compute_trajectory_trend(trajectory)
+    historical = trend["overall_trajectory"]
+    scoring = compute_committee_verdict(vitals_verdict, labs_verdict, historical)
+    risk = compute_baseline_risk(float(age), _icu_type_from_row(hours[0]))
+    out = {
+        "patient_id": patient_id,
+        "age": round(float(age), 2),
+        "sex": "M" if gender == 1 else "F",
+        "icu_hour": max_hour,
+        "verdict": scoring["committee_verdict"],
+        "dissent_score": scoring["dissent_score"],
+        "committee_status": _committee_status(scoring["dissent_score"]),
+        "primary_driver": _primary_driver(vitals_window, labs_window),
+        "vitals_verdict": vitals_verdict,
+        "labs_verdict": labs_verdict,
+        "historical_trajectory": historical,
+        "baseline_risk": risk["baseline_risk_level"],
+    }
+    if include_windows:
+        out["vitals_window"] = vitals_window
+        out["labs_window"] = labs_window
+        out["trajectory"] = trajectory
+        out["trend_analysis"] = trend
+        out["risk_assessment"] = risk
+    return out
+
+
+def _load_hours_by_patient(conn, patient_id: Optional[str] = None) -> dict[str, list[dict]]:
+    q = f"SELECT {_SUMMARY_COLS} FROM hourly_records"
+    params: list = []
+    if patient_id:
+        q += " WHERE patient_id = ?"
+        params.append(patient_id)
+    q += " ORDER BY patient_id, icu_hour"
+    grouped: dict[str, list[dict]] = {}
+    for row in conn.execute(q, params):
+        d = dict(row)
+        grouped.setdefault(d["patient_id"], []).append(d)
+    return grouped
+
+
+@app.get("/patients/summary")
+def list_patient_summaries():
+    """Deterministic committee snapshot for every patient.
+
+    No LLM and no cache table -- computed live from hourly_records using
+    the same vitals/labs/trajectory rules as the live agent tools.
+    """
+    conn = _get_conn()
+    grouped = _load_hours_by_patient(conn)
+    conn.close()
+    return [_summarize_patient(pid, hours) for pid, hours in grouped.items()]
+
+
+@app.get("/patients/{patient_id}/snapshot")
+def get_patient_snapshot(patient_id: str):
+    """Deterministic detail for one patient (verdicts + windows, no LLM)."""
+    conn = _get_conn()
+    grouped = _load_hours_by_patient(conn, patient_id)
+    conn.close()
+    hours = grouped.get(patient_id)
+    if not hours:
+        raise HTTPException(404, f"Unknown patient_id: {patient_id}")
+    return _summarize_patient(patient_id, hours, include_windows=True)
 
 
 # EVALUATION ONLY -- never expose this endpoint's URL to any agent's tool list.

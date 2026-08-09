@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react"
 import { Clock, RefreshCw, AlertTriangle } from "lucide-react"
-import type { Patient } from "../types"
+import type { Patient, PatientAnalytics, Severity } from "../types"
+import type { ChartPoint } from "../api"
 import { getAnalytics } from "../data/patients"
 import { severityColor, severityDim, severityBorder, dissentColor } from "../lib/colors"
 import SeverityBadge from "./SeverityBadge"
@@ -21,29 +22,46 @@ export default function PatientDetail({
   onBack,
   onAbout,
   loading,
+  narrationLoading = false,
+  analytics: analyticsProp,
+  chartData,
+  onRefresh,
 }: {
   patient: Patient
   onBack: () => void
   onAbout: () => void
   loading: boolean
+  narrationLoading?: boolean
+  analytics?: PatientAnalytics
+  chartData?: ChartPoint[]
+  onRefresh?: () => void
 }) {
   const [showDissent, setShowDissent] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [lastRefreshed, setLastRefreshed] = useState(0)
   const [flashHeader, setFlashHeader] = useState(false)
   const dominantVerdict = patient.verdict
-  const analytics = getAnalytics(patient)
+  const analytics = analyticsProp ?? getAnalytics(patient)
 
   const handleRefresh = useCallback(() => {
     if (isRefreshing) return
     setIsRefreshing(true)
+    if (onRefresh) {
+      Promise.resolve(onRefresh()).finally(() => {
+        setIsRefreshing(false)
+        setLastRefreshed(Date.now())
+        setFlashHeader(true)
+        setTimeout(() => setFlashHeader(false), 600)
+      })
+      return
+    }
     setTimeout(() => {
       setIsRefreshing(false)
       setLastRefreshed(Date.now())
       setFlashHeader(true)
       setTimeout(() => setFlashHeader(false), 600)
     }, 1400)
-  }, [isRefreshing])
+  }, [isRefreshing, onRefresh])
 
   return (
     <div style={{ minHeight: "100vh", backgroundColor: "#0f1419" }}>
@@ -187,7 +205,7 @@ export default function PatientDetail({
                   { name: "Historical Pattern", icon: "history" as const },
                 ].map((a) => <LoadingAgentCard key={a.name} {...a} />)
               : patient.agents.map((agent) => (
-                  <AgentCard key={agent.id} agent={agent} dominantVerdict={dominantVerdict} />
+                  <AgentCard key={agent.id} agent={agent} dominantVerdict={dominantVerdict} narrationLoading={narrationLoading} />
                 ))}
           </div>
         </div>
@@ -197,7 +215,7 @@ export default function PatientDetail({
           {loading ? (
             <div style={{ height: "280px", backgroundColor: "#1a2130", borderRadius: "10px", border: "1px solid rgba(255,255,255,0.07)", animation: "pulse 1.8s ease-in-out 0.2s infinite" }} />
           ) : (
-            <VitalsChart patientId={patient.id} icuHour={patient.icuHour} />
+            <VitalsChart patientId={patient.id} icuHour={patient.icuHour} chartData={chartData} verdict={dominantVerdict as Severity} />
           )}
         </div>
 
@@ -235,7 +253,7 @@ export default function PatientDetail({
           <div style={{ fontSize: "11px", fontWeight: 500, color: "rgba(255,255,255,0.25)", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: "14px" }}>
             Judge Synthesis
           </div>
-          {loading ? (
+          {loading || narrationLoading ? (
             <div style={{ backgroundColor: "#1a2130", borderRadius: "10px", border: "1px solid rgba(255,255,255,0.07)", padding: "24px", display: "flex", flexDirection: "column", gap: "8px" }}>
               {[100, 90, 80, 70].map((w, i) => (
                 <div key={i} style={{ height: "12px", borderRadius: "4px", background: "rgba(255,255,255,0.05)", animation: `pulse 1.8s ease-in-out ${i * 0.1}s infinite`, width: `${w}%` }} />

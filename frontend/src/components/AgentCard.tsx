@@ -4,7 +4,15 @@ import { severityColor, severityDim, severityBorder } from "../lib/colors"
 import AgentIcon from "./AgentIcon"
 import SeverityBadge from "./SeverityBadge"
 
-export default function AgentCard({ agent, dominantVerdict }: { agent: Agent; dominantVerdict: Severity }) {
+export default function AgentCard({
+  agent,
+  dominantVerdict,
+  narrationLoading,
+}: {
+  agent: Agent
+  dominantVerdict: Severity
+  narrationLoading?: boolean
+}) {
   const differs = agent.verdict !== dominantVerdict
   const color = severityColor(agent.verdict)
   const accentBg = severityDim(agent.verdict)
@@ -83,9 +91,17 @@ export default function AgentCard({ agent, dominantVerdict }: { agent: Agent; do
       <SeverityBadge verdict={agent.verdict} />
 
       {/* Narration */}
-      <p style={{ fontSize: "12.5px", lineHeight: "1.65", color: "rgba(232,237,242,0.65)", margin: 0 }}>
-        {agent.narration}
-      </p>
+      {narrationLoading ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+          <div style={{ height: "10px", borderRadius: "4px", background: "rgba(255,255,255,0.05)", animation: "pulse 1.8s ease-in-out 0.1s infinite", width: "100%" }} />
+          <div style={{ height: "10px", borderRadius: "4px", background: "rgba(255,255,255,0.05)", animation: "pulse 1.8s ease-in-out 0.2s infinite", width: "85%" }} />
+          <div style={{ height: "10px", borderRadius: "4px", background: "rgba(255,255,255,0.05)", animation: "pulse 1.8s ease-in-out 0.3s infinite", width: "70%" }} />
+        </div>
+      ) : (
+        <p style={{ fontSize: "12.5px", lineHeight: "1.65", color: "rgba(232,237,242,0.65)", margin: 0 }}>
+          {agent.narration}
+        </p>
+      )}
 
       {/* Weight bar */}
       <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
