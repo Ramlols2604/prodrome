@@ -6,3 +6,4 @@ python-multipart==0.0.9
 pytest==8.3.4
 scikit-learn==1.5.2
 statsmodels==0.14.4
+lightgbm==4.6.0
