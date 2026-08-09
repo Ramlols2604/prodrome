@@ -7,7 +7,9 @@ import warnings
 
 import httpx
 
-from llm_client import call_groq
+from groq import RateLimitError
+
+from llm_client import GroqClientError, call_groq
 
 HISTORICAL_SYSTEM_PROMPT = """
 ROLE
@@ -22,11 +24,14 @@ similar patients. You do NOT compute the trajectory classification — a
 deterministic system has already done this.
 
 CONTEXT
-You receive this patient's full vitals/labs history so far, with a
-pre-computed "trend_analysis" object including "overall_trajectory"
-(IMPROVING/WORSENING/MIXED/STABLE) -- trust this completely. You may
-also receive population cohort comparison data with a "sample_size" --
-if sample_size is small (below 30), you MUST describe any rate from it
+You receive this patient's recent vitals/labs history (at most the last
+24 hours), plus a pre-computed "trend_analysis" object covering the
+FULL encounter, including "overall_trajectory"
+(IMPROVING/WORSENING/MIXED/STABLE) -- trust this completely. If the
+user message notes that hourly rows were truncated, say so honestly
+rather than implying you reviewed every hour. You may also receive
+population cohort comparison data with a "sample_size" -- if
+sample_size is small (below 30), you MUST describe any rate from it
 as low-confidence, not reliable.
 
 TASKS
@@ -54,6 +59,7 @@ TRAJECTORY_RE = re.compile(
     re.IGNORECASE,
 )
 LACTATE_COHORT_THRESHOLD = 4.0
+PROMPT_TRAJECTORY_HOURS = 24
 logger = logging.getLogger(__name__)
 
 
@@ -68,6 +74,37 @@ def _any_lactate_above_threshold(raw_data: dict, threshold: float) -> bool:
         if lactate is not None and lactate > threshold:
             return True
     return False
+
+
+def _is_size_or_rate_limit_error(exc: BaseException) -> bool:
+    text = str(exc).lower()
+    return (
+        "413" in text
+        or "429" in text
+        or "rate_limit" in text
+        or "too large" in text
+        or "tokens per minute" in text
+        or "tpm" in text
+    )
+
+
+def _prompt_trajectory_payload(raw_data: dict) -> tuple:
+    """Keep full trend_analysis; send only the most recent 24h of hourly rows."""
+    trajectory = list(raw_data.get("trajectory") or [])
+    trend = dict(raw_data.get("trend_analysis") or {})
+    total_hours = trend.get("hours_in_encounter") or len(trajectory)
+    prompt_data = dict(raw_data)
+    truncated = False
+    if trajectory:
+        max_hour = max((row.get("icu_hour") or 0) for row in trajectory)
+        recent = [
+            row for row in trajectory
+            if (row.get("icu_hour") or 0) > max_hour - PROMPT_TRAJECTORY_HOURS
+        ]
+        if len(recent) < len(trajectory):
+            truncated = True
+        prompt_data["trajectory"] = recent
+    return prompt_data, int(total_hours), truncated
 
 
 async def run_historical_agent(
@@ -101,10 +138,17 @@ async def run_historical_agent(
             cohort_response.raise_for_status()
             cohort_data = cohort_response.json()
 
-    user_parts = [
+    prompt_data, total_hours, truncated = _prompt_trajectory_payload(raw_data)
+    user_parts = []
+    if truncated:
+        user_parts.append(
+            f"Showing the most recent {PROMPT_TRAJECTORY_HOURS} of "
+            f"{total_hours} hours of this patient's encounter."
+        )
+    user_parts.append(
         "Here is this patient's trajectory data:\n"
-        f"{json.dumps(raw_data, indent=2)}"
-    ]
+        f"{json.dumps(prompt_data, indent=2)}"
+    )
     if cohort_data is not None:
         user_parts.append(
             "\nHere is population cohort comparison data "
@@ -117,7 +161,22 @@ async def run_historical_agent(
             "(no lactate value exceeded 4.0)."
         )
     user_message = "\n".join(user_parts)
-    narration = await call_groq(HISTORICAL_SYSTEM_PROMPT, user_message)
+
+    try:
+        narration = await call_groq(HISTORICAL_SYSTEM_PROMPT, user_message)
+    except (GroqClientError, RateLimitError) as exc:
+        logger.warning("Historical narration unavailable: %s", exc)
+        if not _is_size_or_rate_limit_error(exc):
+            raise
+        return {
+            "agent": "historical",
+            "overall_trajectory": computed,
+            "llm_trajectory": None,
+            "consistent": False,
+            "cohort_context": cohort_data,
+            "narration": "Narration unavailable due to LLM request size limits",
+            "raw_data": raw_data,
+        }
 
     match = TRAJECTORY_RE.search(narration)
     if match:
