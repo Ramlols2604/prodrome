@@ -132,13 +132,22 @@ Overall, persistence represents a defensible operating-point change with a chara
 
 **Dissent validation.** All 300 evaluation patients were bucketed by maximum dissent score reached during their encounter, and the actual septic rate within each bucket was measured against ground truth. The main comparison is Mild disagreement (0–33.3, n=224, 46.0% septic) vs Major disagreement (>33.3, n=72, 65.3% septic): septic rate rose monotonically, a 19.3 percentage-point difference between these well-populated buckets. (A Consensus bucket at dissent 0, n=4, had a 0% septic rate; that figure is a descriptive footnote only and is not part of the trend claim.) Notably, mean maximum severity barely differed between the Mild and Major buckets (1.00 vs. 1.26), while septic prevalence differed substantially. This suggests disagreement is not simply tracking overall case severity, but capturing something closer to genuine clinical heterogeneity or diagnostic ambiguity associated with septic outcome. Combined with the persistence-filtering results, a coherent picture emerges: the deterministic rules identify a broad population with physiological abnormality; persistence filtering removes a meaningful share of transient false positives; and among the remaining, harder-to-classify cases, the hypothesis that disagreement contains outcome-relevant information is supported by the evaluation, though this establishes association rather than independent predictive value beyond severity alone (see Phase B below). The dissent score is not validated for calibration or causal interpretation, and should not be treated as a production-ready risk score without further work.
 
+**Dissent beyond severity (Phase B probe).** Three logistic models were compared on the 300-patient evaluation set (150 septic / 150 non-septic) using 5-fold stratified cross-validation (sklearn LogisticRegression, unpenalized, StandardScaler, random_state=42): severity only (AUROC 0.536), dissent only (AUROC 0.583), and severity + dissent (AUROC 0.585). Adding dissent to a severity-only model improved AUROC by +0.049. In a full-sample statsmodels Logit, the max_dissent_score coefficient was 0.0204 (p=0.0213) and remained statistically significant after controlling for severity; the severity coefficient itself was not significant (0.3374, p=0.5187). Dissent alone nearly matches the combined model — almost all of the discriminative signal comes from disagreement, not from severity. This result is an exploratory association in a single 300-patient cohort, not a calibrated or externally validated confidence measure.
+
 ### Upcoming
 
 - [x] Judge agent synthesis + dissent score (Week 3)
 - [x] Evaluation against PhysioNet ground-truth sepsis labels (Week 4 /
   Phase A)
-- [ ] Phase B: test whether dissent has independent predictive value
-  beyond severity; calibration of dissent as a confidence measure
+- [x] Phase B: test whether dissent has independent predictive value
+  beyond severity. Dissent alone (AUROC 0.583) nearly matches
+  severity+dissent (AUROC 0.585) -- almost all discriminative signal
+  comes from disagreement, not severity. Result is an exploratory
+  association in a single 300-patient cohort, not a calibrated or
+  externally validated confidence measure.
+- [ ] Independent validation of the dissent-outcome association on a
+  held-out or externally sourced cohort, to test whether the signal
+  replicates beyond this evaluation sample.
 - [ ] Deployment: Railway/Render (backend), Vercel (frontend),
   Postgres/Supabase (trajectory storage)
 - [ ] Frontend
