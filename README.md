@@ -95,7 +95,13 @@ and unaffected.
 - [x] `agents/vitals.py` — ported from validated n8n prototype, trusts
   `computed_verdict`. Validated: `p000003` → DETERIORATING, `p000001`
   → STABLE, matching the data-service's own classification.
-- [ ] `agents/labs.py`, `agents/risk.py`, `agents/historical.py`
+- [x] `agents/labs.py` — validated: `p000003` → CRITICAL, `p000001` →
+  STABLE, both `verdict_consistent=True`.
+- [x] `agents/risk.py` — validated: `p000001` (age 58) → MODERATE,
+  `p000003` (age 71) → ELEVATED.
+- [x] `agents/historical.py` — cohort call decided in Python (lactate >
+  4.0), not by the LLM. Validated: `p000001` → STABLE (no cohort call);
+  `p000003` → WORSENING (cohort `min_lactate=4.0`, n=2, narration hedged).
 - [ ] Judge agent — deterministic dissent score (agent verdict severity
   spread) + LLM narration, same pattern as the specialist agents
 - [ ] `agents/orchestrator.py` — `asyncio.gather` parallel fan-out +
