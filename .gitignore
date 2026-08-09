@@ -8,3 +8,4 @@ server.log
 .env
 data-service/physionet_data/
 data-service/eval_data/
+frontend/node_modules/
