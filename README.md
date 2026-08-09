@@ -120,6 +120,16 @@ represent production performance. **True parallel execution is restored
 in the Python port** via `asyncio.gather`, which does not share this
 constraint.
 
+## Evaluation
+
+**Persistence filtering.** A 2-of-3-hour persistence filter was evaluated as a targeted intervention for transient WATCH+ false positives. The baseline WATCH+ rule had 100.0% sensitivity and 2.7% specificity; applying persistence reduced sensitivity to 92.7% while increasing specificity to 12.7% and reducing false positives from 146 to 131. Median lead time increased from 17 to 20 hours. DETERIORATING+ and CRITICAL performance were unchanged, since those tiers already require sustained multi-signal agreement across the full window.
+
+A subsequent case-level review of the 59 septic cases affected by persistence showed that the apparent sensitivity loss was heterogeneous. Forty cases (67.8%) involved isolated one-hour abnormalities, and another 10 (16.9%) were borderline two-hour patterns that failed the exact 2-of-3 requirement. Nine cases (15.3%) represented genuine early signals that were temporarily suppressed by the trailing-window requirement; importantly, all nine were eventually detected under persistence, with a mean lead-time loss of 4.95 hours and median loss of 3 hours.
+
+Eleven septic cases were never assigned WATCH+ under persistence. These cases also did not reach DETERIORATING+ or CRITICAL under the evaluated rules, and most had negative baseline lead time, suggesting that many represented low-value late WATCH+ alerts rather than clinically useful early detections. One important exception was a case in which a single abnormal laboratory draw provided a 15-hour pre-onset warning that persistence eliminated. This illustrates a structural limitation: the 2-of-3 rule implicitly assumes roughly hourly observation, which holds for vitals but not for sparsely-drawn labs — a single significant lab abnormality cannot satisfy any persistence requirement if no second draw occurs to persist across. This is a sampling-frequency mismatch, not merely a threshold-tuning issue, and is a natural candidate for a separate, lab-specific persistence rule in future work.
+
+Overall, the results support persistence as a targeted method for reducing transient WATCH+ false positives rather than as a universal solution to false-positive detection. The 2-of-3 filter removes a meaningful portion of WATCH+ false positives while preserving higher-severity rule behavior and retaining eventual detection for the identified genuine early-signal cases. The principal tradeoff is a modest reduction in sensitivity and some loss of early warning time, particularly for isolated laboratory abnormalities.
+
 ### Upcoming
 
 - [ ] Judge agent synthesis + dissent score (Week 3)

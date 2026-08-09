@@ -131,6 +131,23 @@ def compute_committee_verdict(
     }
 
 
+def compute_committee_verdict_persistent(
+    vitals_verdict: str,
+    labs_verdict: str,
+    historical_trajectory: str,
+) -> dict:
+    """Same scoring as compute_committee_verdict, for persistence-filtered inputs.
+
+    Severity mapping, dissent_score, and priority order are identical.
+    Call this with verdicts from compute_vitals_verdict_persistent and
+    compute_labs_verdict_persistent. Historical trajectory is unchanged;
+    Risk remains contextual and is not a vote.
+    """
+    return compute_committee_verdict(
+        vitals_verdict, labs_verdict, historical_trajectory,
+    )
+
+
 async def run_judge(
     patient_id: str,
     data_service_url: str = "http://localhost:8001",

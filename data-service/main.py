@@ -194,6 +194,74 @@ def compute_vitals_verdict(window: list[dict]) -> str:
     return "STABLE"
 
 
+def _trailing_hours_for_persistence(hours: list[dict], trailing: int = 3) -> list[dict]:
+    if len(hours) >= trailing:
+        return hours[-trailing:]
+    return list(hours)
+
+
+def _persistent_flag_keys(
+    hours: list[dict],
+    flag_keys: list[str],
+    is_abnormal,
+    default_status: str,
+    trailing: int = 3,
+) -> set[str]:
+    """Flag types that persist in the trailing window (2 of 3, or all if shorter)."""
+    recent = _trailing_hours_for_persistence(hours, trailing)
+    if not recent:
+        return set()
+    required = 2 if len(recent) >= trailing else len(recent)
+    persistent = set()
+    for key in flag_keys:
+        hits = sum(
+            1 for hour in recent
+            if is_abnormal(hour.get("flags", {}).get(key, default_status))
+        )
+        if hits >= required:
+            persistent.add(key)
+    return persistent
+
+
+def _neutralize_nonpersistent_flags(
+    window: list[dict],
+    flag_keys: list[str],
+    persistent_keys: set[str],
+    replacement_status: str,
+) -> list[dict]:
+    filtered = []
+    for hour in window:
+        new_hour = dict(hour)
+        new_flags = dict(hour.get("flags") or {})
+        for key in flag_keys:
+            if key not in persistent_keys:
+                new_flags[key] = replacement_status
+        new_hour["flags"] = new_flags
+        filtered.append(new_hour)
+    return filtered
+
+
+def compute_vitals_verdict_persistent(window: list[dict]) -> str:
+    """Like compute_vitals_verdict, ignoring isolated single-hour flag blips.
+
+    A vitals flag type only counts as abnormal if it is abnormal in at least
+    2 of the trailing 3 hours ending at the current hour. If fewer than 3
+    hours exist yet, it must be abnormal in all available hours. Baseline
+    STABLE/WATCH/DETERIORATING/CRITICAL rules are unchanged; this only
+    persistence-filters the abnormality signal first.
+    """
+    if not window:
+        return "STABLE"
+    flag_keys = ["hr_status", "map_status", "sbp_status", "resp_status", "temp_status"]
+    persistent = _persistent_flag_keys(
+        window, flag_keys, _is_abnormal_vital_flag, "unknown",
+    )
+    filtered = _neutralize_nonpersistent_flags(
+        window, flag_keys, persistent, "normal",
+    )
+    return compute_vitals_verdict(filtered)
+
+
 @app.get("/patients/{patient_id}/vitals")
 def get_vitals_window(patient_id: str, hours_back: int = Query(6, ge=1, le=200),
                        up_to_hour: Optional[int] = None):
@@ -352,6 +420,31 @@ def compute_labs_verdict(window: list[dict], labs_drawn_count: int) -> str:
         return "WATCH"
 
     return "STABLE"
+
+
+def compute_labs_verdict_persistent(window: list[dict], labs_drawn_count: int) -> str:
+    """Like compute_labs_verdict, ignoring isolated single-draw lab flag blips.
+
+    A lab flag type only counts as abnormal if it is abnormal in at least
+    2 of the trailing 3 DRAWN hours (not calendar hours). If fewer than 3
+    drawn hours exist yet, it must be abnormal in all available drawn hours.
+    Baseline verdict rules are unchanged; this only persistence-filters the
+    abnormality signal first.
+    """
+    if labs_drawn_count == 0:
+        return "STABLE"
+    lab_keys = [
+        "lactate_status", "wbc_status", "creatinine_status",
+        "platelets_status", "bun_status",
+    ]
+    drawn = [hour for hour in window if _hour_had_any_lab(hour)]
+    persistent = _persistent_flag_keys(
+        drawn, lab_keys, _is_abnormal_lab_flag, "not_drawn",
+    )
+    filtered = _neutralize_nonpersistent_flags(
+        window, lab_keys, persistent, "normal",
+    )
+    return compute_labs_verdict(filtered, labs_drawn_count)
 
 
 @app.get("/patients/{patient_id}/labs")
