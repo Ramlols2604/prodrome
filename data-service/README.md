@@ -21,18 +21,18 @@ python data_loader.py --data-dir sample_data
 python data_loader.py --data-dir physionet_data/training
 
 # Run the service
-uvicorn main:app --reload --port 8001
+uvicorn main:app --reload --port 8000
 ```
 
 ## Test it
 
 ```bash
-curl http://localhost:8001/health
-curl http://localhost:8001/patients
-curl "http://localhost:8001/patients/p000003/vitals?hours_back=6"
-curl "http://localhost:8001/patients/p000003/labs?hours_back=12"
-curl "http://localhost:8001/patients/p000003/demographics"
-curl "http://localhost:8001/cohort/outcomes?min_lactate=2.5"
+curl http://localhost:8000/health
+curl http://localhost:8000/patients
+curl "http://localhost:8000/patients/p000003/vitals?hours_back=6"
+curl "http://localhost:8000/patients/p000003/labs?hours_back=12"
+curl "http://localhost:8000/patients/p000003/demographics"
+curl "http://localhost:8000/cohort/outcomes?min_lactate=2.5"
 ```
 
 ## Endpoints (map directly to each agent's Tools)

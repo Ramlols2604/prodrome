@@ -150,7 +150,7 @@ def compute_committee_verdict_persistent(
 
 async def run_judge(
     patient_id: str,
-    data_service_url: str = "http://localhost:8001",
+    data_service_url: str = "http://localhost:8000",
 ) -> dict:
     vitals_result, labs_result, risk_result, historical_result = await asyncio.gather(
         run_vitals_agent(patient_id, data_service_url),

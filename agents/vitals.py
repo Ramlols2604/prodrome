@@ -77,7 +77,7 @@ def _fallback_verdict_from_flags(raw_data: dict) -> str:
 
 async def run_vitals_agent(
     patient_id: str,
-    data_service_url: str = "http://localhost:8001",
+    data_service_url: str = "http://localhost:8000",
 ) -> dict:
     url = f"{data_service_url}/patients/{patient_id}/vitals?hours_back=6"
     async with httpx.AsyncClient(timeout=30.0) as client:

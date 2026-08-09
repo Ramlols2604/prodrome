@@ -68,7 +68,7 @@ def _fallback_baseline_risk(raw_data: dict) -> str:
 
 async def run_risk_agent(
     patient_id: str,
-    data_service_url: str = "http://localhost:8001",
+    data_service_url: str = "http://localhost:8000",
 ) -> dict:
     url = f"{data_service_url}/patients/{patient_id}/demographics"
     async with httpx.AsyncClient(timeout=30.0) as client:

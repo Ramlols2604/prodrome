@@ -11,11 +11,11 @@ backend when deployed) can point its Tool nodes at these endpoints
 without caring how the data is stored.
 
 Run:
-    uvicorn main:app --reload --port 8001
+    uvicorn main:app --reload --port 8000
 
 Test:
-    curl http://localhost:8001/patients
-    curl http://localhost:8001/patients/p000001/vitals?hours_back=6
+    curl http://localhost:8000/patients
+    curl http://localhost:8000/patients/p000001/vitals?hours_back=6
 """
 
 import sqlite3

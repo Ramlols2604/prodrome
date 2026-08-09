@@ -72,7 +72,7 @@ def _any_lactate_above_threshold(raw_data: dict, threshold: float) -> bool:
 
 async def run_historical_agent(
     patient_id: str,
-    data_service_url: str = "http://localhost:8001",
+    data_service_url: str = "http://localhost:8000",
 ) -> dict:
     trajectory_url = f"{data_service_url}/patients/{patient_id}/trajectory"
     async with httpx.AsyncClient(timeout=30.0) as client:
