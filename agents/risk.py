@@ -45,7 +45,10 @@ verdict. End your response with exactly: "BASELINE RISK: " followed by
 the value of baseline_risk_level, verbatim.
 """.strip()
 
-BASELINE_RISK_RE = re.compile(r"BASELINE RISK:\s*(\w+)", re.IGNORECASE)
+BASELINE_RISK_RE = re.compile(
+    r"BASELINE RISK:\s*(LOW|MODERATE|ELEVATED|HIGH)\b",
+    re.IGNORECASE,
+)
 logger = logging.getLogger(__name__)
 
 
@@ -91,11 +94,15 @@ async def run_risk_agent(
     narration = await call_groq(RISK_SYSTEM_PROMPT, user_message)
 
     match = BASELINE_RISK_RE.search(narration)
-    llm_baseline_risk = match.group(1).upper() if match else None
+    if match:
+        llm_baseline_risk = match.group(1).upper()
+    else:
+        llm_baseline_risk = None
+        logger.warning("LLM did not produce a parseable baseline risk line")
     consistent = (
         llm_baseline_risk == computed.upper() if llm_baseline_risk else False
     )
-    if not consistent:
+    if llm_baseline_risk and not consistent:
         logger.warning(
             "LLM baseline risk mismatch: expected=%s got=%s",
             computed,

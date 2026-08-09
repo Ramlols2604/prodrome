@@ -49,7 +49,10 @@ verdict. End your response with exactly: "TRAJECTORY: " followed by the
 value of overall_trajectory, verbatim.
 """.strip()
 
-TRAJECTORY_RE = re.compile(r"TRAJECTORY:\s*(\w+)", re.IGNORECASE)
+TRAJECTORY_RE = re.compile(
+    r"TRAJECTORY:\s*(STABLE|WATCH|IMPROVING|WORSENING|MIXED)\b",
+    re.IGNORECASE,
+)
 LACTATE_COHORT_THRESHOLD = 4.0
 logger = logging.getLogger(__name__)
 
@@ -117,11 +120,15 @@ async def run_historical_agent(
     narration = await call_groq(HISTORICAL_SYSTEM_PROMPT, user_message)
 
     match = TRAJECTORY_RE.search(narration)
-    llm_trajectory = match.group(1).upper() if match else None
+    if match:
+        llm_trajectory = match.group(1).upper()
+    else:
+        llm_trajectory = None
+        logger.warning("LLM did not produce a parseable trajectory line")
     consistent = (
         llm_trajectory == computed.upper() if llm_trajectory else False
     )
-    if not consistent:
+    if llm_trajectory and not consistent:
         logger.warning(
             "LLM trajectory mismatch: expected=%s got=%s",
             computed,

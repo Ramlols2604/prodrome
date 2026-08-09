@@ -61,7 +61,10 @@ with a single explicit line in this exact format: "VERDICT: " followed
 by the value of computed_verdict, verbatim.
 """.strip()
 
-VERDICT_RE = re.compile(r"VERDICT:\s*(\w+)", re.IGNORECASE)
+VERDICT_RE = re.compile(
+    r"VERDICT:\s*(STABLE|WATCH|DETERIORATING|CRITICAL)\b",
+    re.IGNORECASE,
+)
 logger = logging.getLogger(__name__)
 
 
@@ -99,9 +102,13 @@ async def run_vitals_agent(
     narration = await call_groq(VITALS_SYSTEM_PROMPT, user_message)
 
     match = VERDICT_RE.search(narration)
-    llm_verdict = match.group(1).upper() if match else None
+    if match:
+        llm_verdict = match.group(1).upper()
+    else:
+        llm_verdict = None
+        logger.warning("LLM did not produce a parseable verdict line")
     verdict_consistent = llm_verdict == computed.upper() if llm_verdict else False
-    if not verdict_consistent:
+    if llm_verdict and not verdict_consistent:
         logger.warning(
             "LLM verdict mismatch: expected=%s got=%s",
             computed,
