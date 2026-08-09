@@ -122,19 +122,7 @@ constraint.
 
 ## Evaluation
 
-Deterministic committee replay on a 300-patient PhysioNet subset (150
-septic / 150 non-septic, `random.seed(42)`). No LLM in the scoring path.
-The narrative is three parts: detect physiological abnormality, reduce
-transient noise, then treat remaining disagreement as information.
-
-**1. Physiological abnormality detection.** Naive severity thresholds
-alone do not yield a usable WATCH+ operating point. Baseline WATCH+
-(committee severity ≥ 1) reached 100.0% sensitivity but only 2.7%
-specificity (146 false positives / 150 non-septic) — alert fatigue, not
-a deployable watch list. DETERIORATING+ and CRITICAL were highly
-specific (98.7%) but caught few septic cases (9/150 and 6/150).
-
-**2. Persistence filtering.** A 2-of-3-hour persistence filter was evaluated as a targeted intervention for transient WATCH+ false positives. The baseline WATCH+ rule had 100.0% sensitivity and 2.7% specificity; applying persistence reduced sensitivity to 92.7% while increasing specificity to 12.7% and reducing false positives from 146 to 131. Median lead time increased from 17 to 20 hours. DETERIORATING+ and CRITICAL performance were unchanged, since those tiers already require sustained multi-signal agreement across the full window.
+**Persistence filtering.** A 2-of-3-hour persistence filter was evaluated as a targeted intervention for transient WATCH+ false positives. The baseline WATCH+ rule had 100.0% sensitivity and 2.7% specificity; applying persistence reduced sensitivity to 92.7% while increasing specificity to 12.7% and reducing false positives from 146 to 131. Median lead time increased from 17 to 20 hours. DETERIORATING+ and CRITICAL performance were unchanged, since those tiers already require sustained multi-signal agreement across the full window.
 
 A subsequent case-level review of the 59 septic cases affected by persistence showed that the apparent sensitivity loss was heterogeneous. Forty cases (67.8%) involved isolated one-hour abnormalities, and another 10 (16.9%) were borderline two-hour patterns that failed the exact 2-of-3 requirement. Nine cases (15.3%) represented genuine early signals that were temporarily suppressed by the trailing-window requirement; importantly, all nine were eventually detected under persistence, with a mean lead-time loss of 4.95 hours and median loss of 3 hours.
 
@@ -142,21 +130,7 @@ Eleven septic cases were never assigned WATCH+ under persistence. These cases al
 
 Overall, the results support persistence as a targeted method for reducing transient WATCH+ false positives rather than as a universal solution to false-positive detection. The 2-of-3 filter removes a meaningful portion of WATCH+ false positives while preserving higher-severity rule behavior and retaining eventual detection for the identified genuine early-signal cases. The principal tradeoff is a modest reduction in sensitivity and some loss of early warning time, particularly for isolated laboratory abnormalities.
 
-**3. Dissent validation.** On the same 300-patient set, each encounter was replayed with the baseline (non-persistent) committee. Patients were bucketed by the maximum `dissent_score` reached anywhere in the stay: Consensus (0), Mild disagreement (0 < dissent ≤ 33.3), and Major disagreement (dissent > 33.3). Septic prevalence rose with disagreement: 0.0% (0/4) in Consensus, 46.0% (103/224) in Mild, and 65.3% (47/72) in Major. Among patients who reached WATCH+, precision matched those rates (n/a, 46.0%, 65.3%), because nearly every non-consensus patient eventually triggered WATCH+. Mean max committee severity was only modestly higher in Major (1.26 vs 1.00 in Mild), so the septic-rate gradient is not explained by raw severity alone.
-
-These results support the project's core claim that disagreement is informative rather than noise to be averaged away: higher dissent is empirically associated with septic outcome. This is an association on a balanced 150/150 eval set, not a calibrated probability or a validated confidence interval for clinical use. After persistence has reduced transient WATCH+ noise, dissent remains a triage signal for human review among the remaining hard cases.
-
-### Evaluation status (Week 4 / Phase A)
-
-- [x] Complete on the 300-patient PhysioNet subset. Three findings:
-  1. Naive severity thresholds alone do not yield a usable WATCH+
-     operating point (alert fatigue at 2.7% specificity).
-  2. Persistence filtering is a validated, targeted improvement with a
-     well-characterized tradeoff (specificity 2.7% → 12.7%; sensitivity
-     100% → 92.7%; lab-sparsity limitation documented).
-  3. Dissent score is empirically associated with septic outcome,
-     independent of raw severity — association only, not a calibrated
-     confidence measure.
+**Dissent validation.** To test whether committee disagreement is meaningfully informative rather than an unvalidated hypothesis, all 300 evaluation patients were bucketed by maximum dissent score reached during their encounter (Consensus: 0, n=4; Mild: 0–33.3, n=224; Major: >33.3, n=72), and the actual septic rate within each bucket was measured against ground truth. The septic rate rose monotonically with disagreement: 46.0% in Mild disagreement to 65.3% in Major disagreement — a 19.3 percentage-point difference between well-populated buckets. (The Consensus bucket's 0% septic rate is not treated as a reliable finding given its small size, n=4.) Notably, mean maximum severity barely differed between the Mild and Major buckets (1.00 vs. 1.26), while septic prevalence differed substantially. This suggests disagreement is not simply tracking overall case severity, but capturing something closer to genuine clinical heterogeneity or diagnostic ambiguity that is independently associated with septic outcome. Combined with the persistence-filtering results, a coherent picture emerges: the deterministic rules identify a broad population with physiological abnormality; persistence filtering removes a meaningful share of transient false positives; and among the remaining, harder-to-classify cases, agent disagreement is itself informative — greater disagreement is associated with higher septic prevalence, rather than merely reflecting detector noise or unreliability. This result should be read as establishing an association between disagreement and outcome, not a calibrated confidence measure — the dissent score is not validated for calibration or causal interpretation, and should not be treated as a production-ready risk score without further work.
 
 ### Upcoming
 
