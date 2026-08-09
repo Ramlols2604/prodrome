@@ -152,4 +152,8 @@ Overall, persistence represents a defensible operating-point change with a chara
   Postgres/Supabase (trajectory storage)
 - [ ] Frontend
 
+### Future Directions
+
+- **Higher-resolution and intervention-rich datasets.** Intervention/treatment-response features were unavailable in the PhysioNet 2019 dataset used here. Credentialed datasets such as MIMIC-IV, eICU-CRD, and HiRID provide richer physiologic measurements and/or treatment and support variables, including vasopressor and ventilatory data. These would be natural candidates for a future investigation into whether intervention-response and higher-resolution temporal information support genuine short-horizon forecasting. This was not pursued in Phase C.
+
 See `data-service/README.md` for setup instructions for that piece.
