@@ -1,8 +1,10 @@
 __pycache__/
 *.pyc
+.pytest_cache/
 venv/
 .venv/
 prodrome.db
 server.log
 .env
 data-service/physionet_data/
+data-service/eval_data/

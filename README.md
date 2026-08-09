@@ -22,9 +22,9 @@ unvalidated demo.
 prodrome/
 ├── data-service/     # FastAPI layer serving PhysioNet patient data
 │                      # (vitals, labs, demographics, cohort stats)
-├── agents/            # (coming next) committee agent logic —
-│                      # Vitals, Lab, Demographic, Historical Pattern,
-│                      # and Judge agents
+├── agents/            # specialist committee + Judge (fully built) —
+│                      # Vitals, Lab, Demographic/Risk, Historical Pattern,
+│                      # and Judge (deterministic scoring + LLM narration)
 └── frontend/          # (coming later) patient timeline + live
                         # committee panel UI
 ```
