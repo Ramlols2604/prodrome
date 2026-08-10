@@ -13,6 +13,8 @@ export interface Agent {
   icon: "vitals" | "labs" | "risk" | "history"
   verdict: Severity
   narration: string
+  summary?: string | null
+  findings?: string[]
   weight: number // 0-3
 }
 

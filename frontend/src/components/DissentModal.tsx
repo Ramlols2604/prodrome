@@ -1,7 +1,8 @@
 import { X, Info } from "lucide-react"
-import type { Patient } from "../types"
+import type { Patient, Severity } from "../types"
 import { SEVERITY_ORDER } from "../data/patients"
 import { severityColor, severityDim, dissentColor } from "../lib/colors"
+import AgentIcon from "./AgentIcon"
 
 export default function DissentModal({ patient, onClose }: { patient: Patient; onClose: () => void }) {
   const sorted = [...patient.agents].sort((a, b) => SEVERITY_ORDER[b.verdict] - SEVERITY_ORDER[a.verdict])

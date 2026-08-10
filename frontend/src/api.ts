@@ -58,6 +58,15 @@ export interface PatientSnapshot extends PatientSummary {
   risk_assessment: { age_risk_category: string; baseline_risk_level: string }
 }
 
+export interface AgentLlmBlock {
+  narration: string
+  summary?: string | null
+  findings?: string[]
+  verdict?: Severity
+  baseline_risk?: string
+  overall_trajectory?: string
+}
+
 export interface CommitteeResponse {
   patient_id: string
   committee_verdict: Severity
@@ -65,10 +74,10 @@ export interface CommitteeResponse {
   synthesis: string
   cached?: boolean
   agent_results: {
-    vitals: { verdict: Severity; narration: string }
-    labs: { verdict: Severity; narration: string }
-    risk: { baseline_risk: string; narration: string }
-    historical: { overall_trajectory: string; narration: string }
+    vitals: AgentLlmBlock & { verdict: Severity }
+    labs: AgentLlmBlock & { verdict: Severity }
+    risk: AgentLlmBlock & { baseline_risk: string }
+    historical: AgentLlmBlock & { overall_trajectory: string }
   }
 }
 
@@ -216,19 +225,25 @@ export function snapshotToChart(s: PatientSnapshot): ChartPoint[] {
 }
 
 export function applyCommitteeNarration(patient: Patient, c: CommitteeResponse): Patient {
-  const n = {
-    vitals: c.agent_results.vitals.narration,
-    labs: c.agent_results.labs.narration,
-    risk: c.agent_results.risk.narration,
-    history: c.agent_results.historical.narration,
+  const blocks = {
+    vitals: c.agent_results.vitals,
+    labs: c.agent_results.labs,
+    risk: c.agent_results.risk,
+    history: c.agent_results.historical,
   }
   return {
     ...patient,
     judgeSynthesis: c.synthesis,
-    agents: patient.agents.map((a) => ({
-      ...a,
-      narration: n[a.id as keyof typeof n] ?? a.narration,
-    })),
+    agents: patient.agents.map((a) => {
+      const block = blocks[a.id as keyof typeof blocks]
+      if (!block) return a
+      return {
+        ...a,
+        narration: block.narration ?? a.narration,
+        summary: block.summary ?? a.summary,
+        findings: block.findings ?? a.findings,
+      }
+    }),
   }
 }
 

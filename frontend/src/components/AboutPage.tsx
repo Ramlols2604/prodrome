@@ -1,4 +1,16 @@
 import type React from "react"
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  LabelList,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts"
 import type { Agent, Severity } from "../types"
 import { SEVERITY_ORDER } from "../types"
 import { severityColor, severityDim, severityBorder, dissentColor } from "../lib/colors"
