@@ -30,6 +30,10 @@ export interface Patient {
   agents: Agent[]
   judgeSynthesis: string
   archetypal?: "stable" | "critical" | "contested"
+  baselineRisk?: string
+  labsDrawnCount?: number
+  hoursRequested?: number
+  verdictHistory?: Array<{ hour: number; verdict: Severity; dissent_score?: number }>
 }
 
 export type ExtendedSeries = { sbp: number[]; dbp: number[]; resp: number[]; temp: number[]; o2sat: number[]; etco2: number[] }

@@ -32,7 +32,7 @@ from data_loader import DB_PATH
 _AGENTS_DIR = Path(__file__).resolve().parents[1] / "agents"
 if str(_AGENTS_DIR) not in sys.path:
     sys.path.insert(0, str(_AGENTS_DIR))
-from judge import compute_committee_verdict  # noqa: E402
+from judge import compute_committee_verdict_persistent  # noqa: E402
 
 app = FastAPI(title="Prodrome Data Service", version="0.1.0")
 
@@ -689,6 +689,7 @@ def get_cohort_outcomes(min_lactate: Optional[float] = None,
 
 VITALS_HOURS_BACK = 6
 LABS_HOURS_BACK = 12
+HISTORY_HOURS = 24
 
 _SUMMARY_COLS = """
     patient_id, icu_hour, age, gender, unit1, unit2,
@@ -804,18 +805,75 @@ def _icu_type_from_row(row: dict) -> str:
     return "unspecified"
 
 
+def _verdict_history(hours: list[dict], max_hour: int) -> list[dict]:
+    """Replay persistence-filtered committee verdicts for the last HISTORY_HOURS.
+
+    Flags only the hours needed for sliding vitals/labs windows (not the
+    whole encounter). Trajectory prefixes are sliced from a single pass.
+    """
+    hist_start = max(0, max_hour - HISTORY_HOURS + 1)
+    flag_after = hist_start - LABS_HOURS_BACK
+    trajectory: list[dict] = []
+    vitals_win: list[dict] = []
+    labs_win: list[dict] = []
+    history: list[dict] = []
+    for h in hours:
+        t = h["icu_hour"]
+        if t > max_hour:
+            break
+        trajectory.append({
+            "icu_hour": t,
+            "hr": h.get("hr"),
+            "resp": h.get("resp"),
+            "lactate": h.get("lactate"),
+            "wbc": h.get("wbc"),
+        })
+        if t <= flag_after:
+            continue
+        v = {k: h.get(k) for k in ("icu_hour", "hr", "o2sat", "temp", "sbp", "map", "dbp", "resp", "etco2")}
+        v["flags"] = _vitals_flags(v)
+        vitals_win.append(v)
+        lab = {"icu_hour": t, **{k: h.get(k) for k in _LAB_VALUE_KEYS}}
+        lab["flags"] = _labs_flags(lab)
+        labs_win.append(lab)
+        v_cut = t - VITALS_HOURS_BACK
+        l_cut = t - LABS_HOURS_BACK
+        while vitals_win and vitals_win[0]["icu_hour"] <= v_cut:
+            vitals_win.pop(0)
+        while labs_win and labs_win[0]["icu_hour"] <= l_cut:
+            labs_win.pop(0)
+        if t < hist_start:
+            continue
+        vitals_verdict = compute_vitals_verdict_persistent(vitals_win)
+        labs_drawn = sum(1 for x in labs_win if _hour_had_any_lab(x))
+        labs_verdict = compute_labs_verdict_persistent(labs_win, labs_drawn)
+        historical = compute_trajectory_trend(trajectory)["overall_trajectory"]
+        scoring = compute_committee_verdict_persistent(
+            vitals_verdict, labs_verdict, historical,
+        )
+        history.append({
+            "hour": t,
+            "verdict": scoring["committee_verdict"],
+            "dissent_score": scoring["dissent_score"],
+        })
+    return history
+
+
 def _summarize_patient(patient_id: str, hours: list[dict], include_windows: bool = False) -> dict:
     max_hour = max(h["icu_hour"] for h in hours)
     age = next((h["age"] for h in hours if h.get("age") is not None), 0) or 0
     gender = next((h["gender"] for h in hours if h.get("gender") is not None), 0)
     vitals_window, labs_window, trajectory = _windows_for_patient(hours, max_hour)
-    vitals_verdict = compute_vitals_verdict(vitals_window)
+    vitals_verdict = compute_vitals_verdict_persistent(vitals_window)
     labs_drawn = sum(1 for h in labs_window if _hour_had_any_lab(h))
-    labs_verdict = compute_labs_verdict(labs_window, labs_drawn)
+    labs_verdict = compute_labs_verdict_persistent(labs_window, labs_drawn)
     trend = compute_trajectory_trend(trajectory)
     historical = trend["overall_trajectory"]
-    scoring = compute_committee_verdict(vitals_verdict, labs_verdict, historical)
+    scoring = compute_committee_verdict_persistent(
+        vitals_verdict, labs_verdict, historical,
+    )
     risk = compute_baseline_risk(float(age), _icu_type_from_row(hours[0]))
+    verdict_history = _verdict_history(hours, max_hour)
     out = {
         "patient_id": patient_id,
         "age": round(float(age), 2),
@@ -829,6 +887,9 @@ def _summarize_patient(patient_id: str, hours: list[dict], include_windows: bool
         "labs_verdict": labs_verdict,
         "historical_trajectory": historical,
         "baseline_risk": risk["baseline_risk_level"],
+        "labs_drawn_count": labs_drawn,
+        "hours_requested": LABS_HOURS_BACK,
+        "verdict_history": verdict_history,
     }
     if include_windows:
         out["vitals_window"] = vitals_window
@@ -858,7 +919,8 @@ def list_patient_summaries():
     """Deterministic committee snapshot for every patient.
 
     No LLM and no cache table -- computed live from hourly_records using
-    the same vitals/labs/trajectory rules as the live agent tools.
+    the Phase A persistence-filtered vitals/labs operating point
+    (2-of-3 hours), not the noisy baseline WATCH rule.
     """
     conn = _get_conn()
     grouped = _load_hours_by_patient(conn)

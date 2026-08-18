@@ -94,6 +94,42 @@ def health():
     return {"status": "ok", "data_service_url": DATA_SERVICE_URL}
 
 
+@app.get("/narration-consistency")
+def narration_consistency():
+    """Aggregate LLM-vs-deterministic agreement from cached committee runs.
+
+    Does not call Groq. Patients never opened on the detail page are absent.
+    """
+    conn = _cache_conn()
+    rows = conn.execute("SELECT payload FROM llm_cache").fetchall()
+    conn.close()
+    keys = {
+        "vitals": "verdict_consistent",
+        "labs": "verdict_consistent",
+        "risk": "consistent",
+        "historical": "consistent",
+    }
+    agents = {name: {"matched": 0, "n": 0} for name in keys}
+    for (raw,) in rows:
+        ar = (json.loads(raw) or {}).get("agent_results") or {}
+        for name, field in keys.items():
+            block = ar.get(name) or {}
+            if field not in block:
+                continue
+            agents[name]["n"] += 1
+            if block[field]:
+                agents[name]["matched"] += 1
+    out = {}
+    for name, counts in agents.items():
+        n = counts["n"]
+        out[name] = {
+            "matched": counts["matched"],
+            "n": n,
+            "pct": round(100.0 * counts["matched"] / n, 1) if n else None,
+        }
+    return {"cached_patients": len(rows), "agents": out}
+
+
 @app.get("/patients/{patient_id}/committee")
 async def committee(patient_id: str, refresh: bool = Query(False)):
     if not refresh:

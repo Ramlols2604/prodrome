@@ -35,7 +35,9 @@ export default function SeverityDissentChart({ analytics, icuHour }: { analytics
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "16px" }}>
         <div>
           <div style={{ fontSize: "12px", fontWeight: 500, color: "rgba(255,255,255,0.35)", letterSpacing: "0.08em", textTransform: "uppercase" }}>Historical State</div>
-          <div style={{ fontSize: "11px", color: "rgba(255,255,255,0.25)", marginTop: "2px" }}>Observed severity + committee dissent — ICU H+0–H+{icuHour}</div>
+          <div style={{ fontSize: "11px", color: "rgba(255,255,255,0.25)", marginTop: "2px" }}>
+            Committee severity + dissent replay — last {data.length} hours (through H+{icuHour})
+          </div>
         </div>
         <div style={{ fontSize: "10px", color: "rgba(255,255,255,0.2)", backgroundColor: "rgba(255,255,255,0.04)", padding: "3px 8px", borderRadius: "4px", letterSpacing: "0.05em" }}>
           HISTORICAL · NOT A PREDICTION

@@ -1,9 +1,61 @@
 import { useState } from "react"
-import type { Patient } from "../types"
+import { Bookmark } from "lucide-react"
+import type { Patient, Severity } from "../types"
+import { SEVERITY_ORDER } from "../types"
 import { severityColor, severityBorder, dissentColor } from "../lib/colors"
 import SeverityBadge from "./SeverityBadge"
 
-export default function PatientCard({ patient, onClick }: { patient: Patient; onClick: () => void }) {
+function VerdictSparkline({
+  history,
+  color,
+}: {
+  history: Array<{ hour: number; verdict: Severity }>
+  color: string
+}) {
+  if (!history.length) return null
+  const w = 60
+  const h = 18
+  const pad = 1
+  const maxSev = 3
+  const n = history.length
+  const xOf = (i: number) => pad + (n === 1 ? (w - pad * 2) / 2 : (i / (n - 1)) * (w - pad * 2))
+  const yOf = (verdict: Severity) => pad + (1 - SEVERITY_ORDER[verdict] / maxSev) * (h - pad * 2)
+  const pts: string[] = []
+  history.forEach((p, i) => {
+    const x = xOf(i).toFixed(1)
+    const y = yOf(p.verdict).toFixed(1)
+    if (i === 0) {
+      pts.push(`${x},${y}`)
+      return
+    }
+    pts.push(`${x},${yOf(history[i - 1].verdict).toFixed(1)}`)
+    pts.push(`${x},${y}`)
+  })
+  return (
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} aria-label="Severity over recent hours" style={{ display: "block", flexShrink: 0 }}>
+      <polyline
+        points={pts.join(" ")}
+        fill="none"
+        stroke={color}
+        strokeWidth="1.6"
+        strokeLinejoin="miter"
+        strokeLinecap="butt"
+      />
+    </svg>
+  )
+}
+
+export default function PatientCard({
+  patient,
+  flagged,
+  onToggleFlag,
+  onClick,
+}: {
+  patient: Patient
+  flagged?: boolean
+  onToggleFlag?: () => void
+  onClick: () => void
+}) {
   const [hovered, setHovered] = useState(false)
   const color = severityColor(patient.verdict)
   const dColor = dissentColor(patient.dissentScore)
@@ -41,7 +93,6 @@ export default function PatientCard({ patient, onClick }: { patient: Patient; on
         overflow: "hidden",
       }}
     >
-      {/* Layer 1: Colored left edge = severity signal */}
       <div
         style={{
           position: "absolute",
@@ -57,9 +108,19 @@ export default function PatientCard({ patient, onClick }: { patient: Patient; on
       />
 
       <div style={{ padding: "18px 20px 18px 20px", paddingLeft: "20px", marginLeft: "3px" }}>
-        {/* Row 1: ID + meta left, severity badge right */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+            <span
+              title={`Dissent ${patient.dissentScore}/100`}
+              style={{
+                width: "8px",
+                height: "8px",
+                borderRadius: "50%",
+                backgroundColor: dColor,
+                boxShadow: patient.dissentScore > 33.3 ? `0 0 7px ${dColor}` : "none",
+                flexShrink: 0,
+              }}
+            />
             <span style={{ fontFamily: "var(--font-mono)", fontSize: "14px", fontWeight: 600, color: "#e8edf2", letterSpacing: "0.02em" }}>
               {patient.id}
             </span>
@@ -67,11 +128,30 @@ export default function PatientCard({ patient, onClick }: { patient: Patient; on
               {patient.age}y {patient.sex} · H+{patient.icuHour}
             </span>
           </div>
-          {/* Layer 2: Severity badge = headline status */}
-          <SeverityBadge verdict={patient.verdict} />
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            {onToggleFlag && (
+              <span
+                role="button"
+                aria-label={flagged ? "Remove from worklist" : "Add to worklist"}
+                title={flagged ? "Remove from worklist" : "Flag for review"}
+                onClick={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  onToggleFlag()
+                }}
+                style={{
+                  display: "inline-flex",
+                  color: flagged ? "#f59e0b" : "rgba(255,255,255,0.22)",
+                  padding: "2px",
+                }}
+              >
+                <Bookmark size={14} fill={flagged ? "#f59e0b" : "none"} />
+              </span>
+            )}
+            <SeverityBadge verdict={patient.verdict} />
+          </div>
         </div>
 
-        {/* Layer 3: AI committee line + dissent — clearly labeled, neutral weight */}
         <div style={{ display: "flex", alignItems: "center", gap: "16px", marginBottom: "10px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
             <span style={{ fontSize: "11px", color: "rgba(255,255,255,0.28)", fontWeight: 500 }}>AI committee:</span>
@@ -87,9 +167,14 @@ export default function PatientCard({ patient, onClick }: { patient: Patient; on
               {patient.dissentScore}%
             </span>
           </div>
+          {patient.verdictHistory && patient.verdictHistory.length > 1 && (
+            <>
+              <div style={{ width: "1px", height: "12px", backgroundColor: "rgba(255,255,255,0.1)" }} />
+              <VerdictSparkline history={patient.verdictHistory} color={color} />
+            </>
+          )}
         </div>
 
-        {/* Layer 4: Primary clinical driver */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: "16px" }}>
           <div style={{ display: "flex", gap: "6px", alignItems: "flex-start", flex: 1 }}>
             <span style={{ fontSize: "11px", color: "rgba(255,255,255,0.28)", fontWeight: 500, whiteSpace: "nowrap" as const, paddingTop: "1px" }}>
@@ -99,7 +184,6 @@ export default function PatientCard({ patient, onClick }: { patient: Patient; on
               {patient.primaryDriver}
             </span>
           </div>
-          {/* View details affordance */}
           <span
             style={{
               fontSize: "11px",
@@ -117,4 +201,3 @@ export default function PatientCard({ patient, onClick }: { patient: Patient; on
     </button>
   )
 }
-

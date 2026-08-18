@@ -17,6 +17,9 @@ export interface PatientSummary {
   labs_verdict: Severity
   historical_trajectory: string
   baseline_risk: string
+  labs_drawn_count?: number
+  hours_requested?: number
+  verdict_history?: Array<{ hour: number; verdict: Severity; dissent_score?: number }>
 }
 
 export interface HourlyVitals {
@@ -142,6 +145,10 @@ export function summaryToPatient(s: PatientSummary): Patient {
       agent("history", "Historical Pattern", "history", TRAJ_TO_SEVERITY[s.historical_trajectory] ?? "STABLE"),
     ],
     judgeSynthesis: "",
+    baselineRisk: s.baseline_risk,
+    labsDrawnCount: s.labs_drawn_count,
+    hoursRequested: s.hours_requested,
+    verdictHistory: s.verdict_history,
   }
 }
 
@@ -156,12 +163,14 @@ export function snapshotToAnalytics(s: PatientSnapshot): PatientAnalytics {
   const lVal = (key: keyof HourlyLabs, unit: string) =>
     lastL?.[key] == null ? undefined : `${lastL[key]}${unit}`
 
-  const sevNum = SEVERITY_ORDER[s.verdict]
-  const hourlyHistory = s.trajectory.map((h) => ({
-    hour: h.icu_hour,
-    severity: sevNum,
-    severityLabel: s.verdict,
-    dissent: s.dissent_score,
+  const hourlyHistory = (s.verdict_history && s.verdict_history.length
+    ? s.verdict_history
+    : [{ hour: s.icu_hour, verdict: s.verdict, dissent_score: s.dissent_score }]
+  ).map((h) => ({
+    hour: h.hour,
+    severity: SEVERITY_ORDER[h.verdict],
+    severityLabel: h.verdict,
+    dissent: h.dissent_score ?? s.dissent_score,
   }))
 
   const labDraws: PatientAnalytics["labDraws"] = {}
@@ -267,4 +276,13 @@ export function fetchSnapshot(patientId: string) {
 export function fetchCommittee(patientId: string, refresh = false) {
   const q = refresh ? "?refresh=true" : ""
   return getJson<CommitteeResponse>(`${ORCHESTRATOR}/patients/${patientId}/committee${q}`)
+}
+
+export interface NarrationConsistency {
+  cached_patients: number
+  agents: Record<string, { matched: number; n: number; pct: number | null }>
+}
+
+export function fetchNarrationConsistency() {
+  return getJson<NarrationConsistency>(`${ORCHESTRATOR}/narration-consistency`)
 }
