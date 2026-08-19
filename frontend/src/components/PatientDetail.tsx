@@ -1,8 +1,16 @@
-import { useState, useCallback } from "react"
+import { useState, useCallback, useEffect, useRef } from "react"
+import { Navigate, useNavigate, useParams } from "react-router-dom"
 import { Clock, RefreshCw, AlertTriangle } from "lucide-react"
 import type { Patient, PatientAnalytics, Severity } from "../types"
 import type { ChartPoint } from "../api"
-import { getAnalytics } from "../data/patients"
+import {
+  applyCommitteeNarration,
+  fetchCommittee,
+  fetchSnapshot,
+  snapshotToAnalytics,
+  snapshotToChart,
+  summaryToPatient,
+} from "../api"
 import { severityColor, severityDim, severityBorder, dissentColor } from "../lib/colors"
 import SeverityBadge from "./SeverityBadge"
 import DissentGauge from "./DissentGauge"
@@ -17,51 +25,131 @@ import DemographicRiskBlock from "./DemographicRiskBlock"
 import DissentModal from "./DissentModal"
 import ProdromeWordmark from "./ProdromeWordmark"
 
-export default function PatientDetail({
-  patient,
-  onBack,
-  onAbout,
-  loading,
-  narrationLoading = false,
-  analytics: analyticsProp,
-  chartData,
-  onRefresh,
-}: {
-  patient: Patient
-  onBack: () => void
-  onAbout: () => void
-  loading: boolean
-  narrationLoading?: boolean
-  analytics?: PatientAnalytics
-  chartData?: ChartPoint[]
-  onRefresh?: () => void
-}) {
+function emptyPatient(id: string): Patient {
+  return {
+    id,
+    age: 0,
+    sex: "",
+    icuHour: 0,
+    verdict: "WATCH",
+    dissentScore: 0,
+    committeeStatus: "Majority",
+    primaryDriver: "",
+    agents: [],
+    judgeSynthesis: "",
+  }
+}
+
+export default function PatientDetail() {
+  const { id } = useParams()
+  const navigate = useNavigate()
+  const idRef = useRef(id)
+  idRef.current = id
+
+  const [loaded, setLoaded] = useState<Patient | null>(null)
+  const [analyticsData, setAnalyticsData] = useState<PatientAnalytics | undefined>()
+  const [chartData, setChartData] = useState<ChartPoint[] | undefined>()
+  const [snapshotLoading, setSnapshotLoading] = useState(true)
+  const [narrationLoading, setNarrationLoading] = useState(true)
+  const [notFound, setNotFound] = useState(false)
   const [showDissent, setShowDissent] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [lastRefreshed, setLastRefreshed] = useState(0)
   const [flashHeader, setFlashHeader] = useState(false)
-  const dominantVerdict = patient.verdict
-  const analytics = analyticsProp ?? getAnalytics(patient)
+
+  // Reset synchronously when the route id changes so the previous patient's
+  // verdict/narration never paints while the new fetch is in flight.
+  const [activeId, setActiveId] = useState(id)
+  if (id !== activeId) {
+    setActiveId(id)
+    setLoaded(null)
+    setAnalyticsData(undefined)
+    setChartData(undefined)
+    setSnapshotLoading(true)
+    setNarrationLoading(true)
+    setNotFound(false)
+    setShowDissent(false)
+    setIsRefreshing(false)
+    setLastRefreshed(0)
+    setFlashHeader(false)
+  }
+
+  useEffect(() => {
+    if (!id) return
+    let cancelled = false
+    setSnapshotLoading(true)
+    setNarrationLoading(true)
+    setNotFound(false)
+    setShowDissent(false)
+    setIsRefreshing(false)
+    setLastRefreshed(0)
+    setFlashHeader(false)
+
+    ;(async () => {
+      try {
+        const snap = await fetchSnapshot(id)
+        if (cancelled) return
+        const p = summaryToPatient(snap)
+        setLoaded(p)
+        setAnalyticsData(snapshotToAnalytics(snap))
+        setChartData(snapshotToChart(snap))
+        setSnapshotLoading(false)
+        try {
+          const committee = await fetchCommittee(id)
+          if (cancelled) return
+          setLoaded(applyCommitteeNarration(p, committee))
+        } catch {
+          /* deterministic UI still works without narration */
+        } finally {
+          if (!cancelled) setNarrationLoading(false)
+        }
+      } catch {
+        if (!cancelled) {
+          setNotFound(true)
+          setSnapshotLoading(false)
+          setNarrationLoading(false)
+        }
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [id])
 
   const handleRefresh = useCallback(() => {
-    if (isRefreshing) return
+    if (!id || isRefreshing) return
+    const refreshId = id
     setIsRefreshing(true)
-    if (onRefresh) {
-      Promise.resolve(onRefresh()).finally(() => {
-        setIsRefreshing(false)
+    setNarrationLoading(true)
+    ;(async () => {
+      try {
+        const snap = await fetchSnapshot(refreshId)
+        const committee = await fetchCommittee(refreshId, true)
+        if (idRef.current !== refreshId) return
+        setLoaded(applyCommitteeNarration(summaryToPatient(snap), committee))
+        setAnalyticsData(snapshotToAnalytics(snap))
+        setChartData(snapshotToChart(snap))
         setLastRefreshed(Date.now())
         setFlashHeader(true)
         setTimeout(() => setFlashHeader(false), 600)
-      })
-      return
-    }
-    setTimeout(() => {
-      setIsRefreshing(false)
-      setLastRefreshed(Date.now())
-      setFlashHeader(true)
-      setTimeout(() => setFlashHeader(false), 600)
-    }, 1400)
-  }, [isRefreshing, onRefresh])
+      } finally {
+        if (idRef.current === refreshId) {
+          setIsRefreshing(false)
+          setNarrationLoading(false)
+        }
+      }
+    })()
+  }, [id, isRefreshing])
+
+  if (notFound) return <Navigate to="/" replace />
+
+  const onBack = () => navigate("/")
+  const onAbout = () => navigate("/about")
+  const patient = loaded ?? emptyPatient(id ?? "")
+  const loading = snapshotLoading || !loaded
+  const analytics = analyticsData
+  const dominantVerdict = patient.verdict
 
   return (
     <div style={{ minHeight: "100vh", backgroundColor: "#0f1419" }}>
@@ -220,7 +308,7 @@ export default function PatientDetail({
         </div>
 
         {/* Signal Flags + Lab Draw Timeline side by side */}
-        {!loading && (
+        {!loading && analytics && (
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: "24px" }}>
             <SignalFlagsPanel analytics={analytics} />
             <LabDrawTimeline analytics={analytics} icuHour={patient.icuHour} />
@@ -228,21 +316,21 @@ export default function PatientDetail({
         )}
 
         {/* Trajectory Trends */}
-        {!loading && (
+        {!loading && analytics && (
           <div style={{ marginBottom: "24px" }}>
             <TrajectoryPanel analytics={analytics} />
           </div>
         )}
 
         {/* Historical State: Severity & Dissent Over Time */}
-        {!loading && (
+        {!loading && analytics && (
           <div style={{ marginBottom: "24px" }}>
             <SeverityDissentChart analytics={analytics} icuHour={patient.icuHour} />
           </div>
         )}
 
         {/* Demographic Risk */}
-        {!loading && (
+        {!loading && analytics && (
           <div style={{ marginBottom: "24px" }}>
             <DemographicRiskBlock patient={patient} analytics={analytics} />
           </div>

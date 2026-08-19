@@ -67,6 +67,8 @@ export default function PatientCard({
     Split: "#f59e0b",
   }
   const statusColor = committeeColors[patient.committeeStatus] ?? "rgba(255,255,255,0.35)"
+  const urgent = patient.verdict === "CRITICAL" || patient.verdict === "DETERIORATING"
+  const barW = urgent ? 5 : 3
 
   return (
     <button
@@ -78,17 +80,29 @@ export default function PatientCard({
         cursor: "pointer",
         display: "block",
         width: "100%",
-        backgroundColor: hovered ? "#1d2840" : "#161e2a",
+        background: hovered
+          ? urgent
+            ? `linear-gradient(90deg, ${color}2e 0%, #1d2840 88px)`
+            : "#1d2840"
+          : urgent
+            ? `linear-gradient(90deg, ${color}22 0%, #161e2a 96px)`
+            : "#161e2a",
         borderRadius: "10px",
         border: hovered
           ? `1px solid ${severityBorder(patient.verdict)}`
-          : "1px solid rgba(255,255,255,0.06)",
+          : urgent
+            ? `1px solid ${color}55`
+            : "1px solid rgba(255,255,255,0.06)",
         padding: "0",
         textAlign: "left" as const,
         transition: "background-color 0.15s, border-color 0.15s, box-shadow 0.15s",
-        boxShadow: hovered
-          ? `0 4px 20px rgba(0,0,0,0.45), 0 0 0 0 ${color}00`
-          : "0 1px 4px rgba(0,0,0,0.25)",
+        boxShadow: urgent
+          ? hovered
+            ? `0 4px 22px ${color}33, 0 0 0 1px ${color}30`
+            : `0 2px 14px ${color}1f, 0 0 0 1px ${color}18`
+          : hovered
+            ? "0 4px 20px rgba(0,0,0,0.45)"
+            : "0 1px 4px rgba(0,0,0,0.25)",
         position: "relative",
         overflow: "hidden",
       }}
@@ -99,15 +113,20 @@ export default function PatientCard({
           left: 0,
           top: 0,
           bottom: 0,
-          width: "3px",
+          width: `${barW}px`,
           backgroundColor: color,
           borderRadius: "10px 0 0 10px",
-          opacity: hovered ? 1 : 0.8,
+          boxShadow: urgent ? `0 0 10px ${color}` : "none",
+          opacity: hovered || urgent ? 1 : 0.8,
           transition: "opacity 0.15s",
         }}
       />
 
-      <div style={{ padding: "18px 20px 18px 20px", paddingLeft: "20px", marginLeft: "3px" }}>
+      <div style={{
+        padding: urgent ? "16px 18px 16px 18px" : "14px 16px 14px 16px",
+        paddingLeft: urgent ? "20px" : "16px",
+        marginLeft: `${barW}px`,
+      }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
             <span
