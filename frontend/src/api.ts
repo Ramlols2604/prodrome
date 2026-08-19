@@ -257,7 +257,7 @@ export function applyCommitteeNarration(patient: Patient, c: CommitteeResponse):
 }
 
 async function getJson<T>(url: string): Promise<T> {
-  const res = await fetch(url)
+  const res = await fetch(url, { cache: "no-store" })
   if (!res.ok) {
     const text = await res.text()
     throw new Error(`${res.status} ${text}`)
