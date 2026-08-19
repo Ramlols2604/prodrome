@@ -7,6 +7,7 @@ and is intentionally not a vote. The LLM narrates; it never overrides.
 import asyncio
 import logging
 import re
+import time
 
 from historical import run_historical_agent
 from labs import run_labs_agent
@@ -152,12 +153,31 @@ async def run_judge(
     patient_id: str,
     data_service_url: str = "http://localhost:8000",
 ) -> dict:
-    vitals_result, labs_result, risk_result, historical_result = await asyncio.gather(
-        run_vitals_agent(patient_id, data_service_url),
-        run_labs_agent(patient_id, data_service_url),
-        run_risk_agent(patient_id, data_service_url),
-        run_historical_agent(patient_id, data_service_url),
+    total_started = time.perf_counter()
+
+    async def _timed(name: str, coro):
+        t0 = time.perf_counter()
+        result = await coro
+        return name, result, time.perf_counter() - t0
+
+    v_t, l_t, r_t, h_t = await asyncio.gather(
+        _timed("vitals", run_vitals_agent(patient_id, data_service_url)),
+        _timed("labs", run_labs_agent(patient_id, data_service_url)),
+        _timed("risk", run_risk_agent(patient_id, data_service_url)),
+        _timed("historical", run_historical_agent(patient_id, data_service_url)),
     )
+
+    timings = {
+        "vitals_s": round(v_t[2], 3),
+        "labs_s": round(l_t[2], 3),
+        "risk_s": round(r_t[2], 3),
+        "historical_s": round(h_t[2], 3),
+    }
+
+    vitals_result = v_t[1]
+    labs_result = l_t[1]
+    risk_result = r_t[1]
+    historical_result = h_t[1]
 
     scoring = compute_committee_verdict(
         vitals_result["verdict"],
@@ -182,7 +202,13 @@ async def run_judge(
         f"{risk_result['baseline_risk']}\n"
         f"Risk Agent narration:\n{risk_result['narration']}\n"
     )
-    synthesis = await call_groq(JUDGE_SYSTEM_PROMPT, user_message)
+    judge_started = time.perf_counter()
+    synthesis = await call_groq(
+        JUDGE_SYSTEM_PROMPT,
+        user_message,
+        request_context=f"judge:{patient_id}",
+    )
+    timings["judge_s"] = round(time.perf_counter() - judge_started, 3)
 
     match = COMMITTEE_VERDICT_RE.search(synthesis)
     if match:
@@ -202,12 +228,15 @@ async def run_judge(
             llm_committee_verdict,
         )
 
+    timings["total_s"] = round(time.perf_counter() - total_started, 3)
+
     return {
         "patient_id": patient_id,
         "committee_verdict": committee_verdict,
         "llm_committee_verdict": llm_committee_verdict,
         "verdict_consistent": verdict_consistent,
         "dissent_score": dissent_score,
+        "timings": timings,
         "agent_results": {
             "vitals": vitals_result,
             "labs": labs_result,

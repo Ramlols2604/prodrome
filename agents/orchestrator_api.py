@@ -18,6 +18,7 @@ Test:
 import json
 import os
 import sqlite3
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -132,9 +133,13 @@ def narration_consistency():
 
 @app.get("/patients/{patient_id}/committee")
 async def committee(patient_id: str, refresh: bool = Query(False)):
+    started = time.perf_counter()
+
     if not refresh:
         cached = _cache_get(patient_id)
         if cached is not None:
+            wall_ms = int((time.perf_counter() - started) * 1000)
+            cached["orchestrator_wall_ms"] = wall_ms
             return cached
     try:
         result = await run_judge(patient_id, data_service_url=DATA_SERVICE_URL)
@@ -148,6 +153,14 @@ async def committee(patient_id: str, refresh: bool = Query(False)):
             status_code=503,
             detail=f"data-service unreachable at {DATA_SERVICE_URL}: {exc}",
         ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Committee run failed: {type(exc).__name__}: {exc}",
+        ) from exc
+
+    wall_ms = int((time.perf_counter() - started) * 1000)
+    result["orchestrator_wall_ms"] = wall_ms
     _cache_put(patient_id, result)
     result["cached"] = False
     return result

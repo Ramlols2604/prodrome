@@ -9,7 +9,7 @@ import httpx
 
 from groq import RateLimitError
 
-from llm_client import GroqClientError, call_groq
+from llm_client import GroqClientError, call_groq, parse_structured_narration
 
 HISTORICAL_SYSTEM_PROMPT = """
 ROLE
@@ -36,16 +36,29 @@ as low-confidence, not reliable.
 
 TASKS
 1. Report how many hours are in the encounter so far
-2. State the overall_trajectory and which individual signals are
-   driving it
+2. State the overall_trajectory and identify the 2-3 most clinically
+   significant findings driving it -- you do not need to mention every
+   signal, only the ones that matter most
 3. If cohort data was provided, summarize it with an appropriate
    confidence caveat based on its sample size
-4. Summarize in 3-5 sentences
+4. Output the required SUMMARY/FINDING format covering the above
 
 OPERATING GUIDELINES
 Never state a different overall_trajectory than provided. If cohort
 sample_size is small, use hedged language ("in this small sample of X
 patients") rather than stating a percentage as a solid finding.
+Format your response EXACTLY as follows, with no other text:
+
+SUMMARY: <one sentence, the single most important takeaway>
+FINDING: <signal name> — <specific value/flag> — <brief clinical note>
+FINDING: <signal name> — <specific value/flag> — <brief clinical note>
+FINDING: <signal name> — <specific value/flag> — <brief clinical note>
+
+Include exactly 2-4 FINDING lines, ordered by clinical importance, most
+important first. Each FINDING line must be a single line with no line
+breaks. Do not add any text before SUMMARY or after the last FINDING
+line, other than the required VERDICT/BASELINE RISK/TRAJECTORY line
+that follows this format block.
 
 CONSTRAINTS
 Never output a diagnosis. Never fabricate a data point not provided.
@@ -163,18 +176,27 @@ async def run_historical_agent(
     user_message = "\n".join(user_parts)
 
     try:
-        narration = await call_groq(HISTORICAL_SYSTEM_PROMPT, user_message)
+        narration = await call_groq(
+            HISTORICAL_SYSTEM_PROMPT,
+            user_message,
+            request_context=f"historical:{patient_id}",
+        )
+        summary, findings = parse_structured_narration(narration)
     except (GroqClientError, RateLimitError) as exc:
         logger.warning("Historical narration unavailable: %s", exc)
-        if not _is_size_or_rate_limit_error(exc):
-            raise
+        if _is_size_or_rate_limit_error(exc):
+            fallback_narration = "Narration unavailable due to LLM request size limits"
+        else:
+            fallback_narration = "Narration unavailable: LLM request failed"
         return {
             "agent": "historical",
             "overall_trajectory": computed,
             "llm_trajectory": None,
             "consistent": False,
             "cohort_context": cohort_data,
-            "narration": "Narration unavailable due to LLM request size limits",
+            "narration": fallback_narration,
+            "summary": None,
+            "findings": [],
             "raw_data": raw_data,
         }
 
@@ -201,5 +223,7 @@ async def run_historical_agent(
         "consistent": consistent,
         "cohort_context": cohort_data,
         "narration": narration,
+        "summary": summary,
+        "findings": findings,
         "raw_data": raw_data,
     }

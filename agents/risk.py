@@ -7,7 +7,7 @@ import warnings
 
 import httpx
 
-from llm_client import call_groq
+from llm_client import GroqClientError, call_groq, parse_structured_narration
 
 RISK_SYSTEM_PROMPT = """
 ROLE
@@ -28,15 +28,28 @@ pre-computed "risk_assessment" object with "age_risk_category" and
 
 TASKS
 1. State the patient's age and the resulting baseline_risk_level
-2. In 1-2 sentences, explain what this baseline risk level means in
-   context -- e.g. an ELEVATED or HIGH baseline means the same clinical
-   findings from other agents should be weighted as more urgent, since
-   older patients have less physiological reserve to compensate
+2. Explain what this baseline risk level means in context -- e.g. an
+   ELEVATED or HIGH baseline means the same clinical findings from other
+   agents should be weighted as more urgent, since older patients have
+   less physiological reserve to compensate. Identify the 2-3 most
+   clinically significant findings driving the assessment -- you do not
+   need to mention every signal, only the ones that matter most
 3. Do not speculate about the patient's actual current condition
 
 OPERATING GUIDELINES
-Never state a different baseline_risk_level than provided. Keep your
-response brief -- 2-4 sentences.
+Never state a different baseline_risk_level than provided.
+Format your response EXACTLY as follows, with no other text:
+
+SUMMARY: <one sentence, the single most important takeaway>
+FINDING: <signal name> — <specific value/flag> — <brief clinical note>
+FINDING: <signal name> — <specific value/flag> — <brief clinical note>
+FINDING: <signal name> — <specific value/flag> — <brief clinical note>
+
+Include exactly 2-4 FINDING lines, ordered by clinical importance, most
+important first. Each FINDING line must be a single line with no line
+breaks. Do not add any text before SUMMARY or after the last FINDING
+line, other than the required VERDICT/BASELINE RISK/TRAJECTORY line
+that follows this format block.
 
 CONSTRAINTS
 Never output a diagnosis. Never fabricate a data point not provided.
@@ -91,7 +104,25 @@ async def run_risk_agent(
         "Here is this patient's demographics data:\n"
         f"{json.dumps(raw_data, indent=2)}"
     )
-    narration = await call_groq(RISK_SYSTEM_PROMPT, user_message)
+    try:
+        narration = await call_groq(
+            RISK_SYSTEM_PROMPT,
+            user_message,
+            request_context=f"risk:{patient_id}",
+        )
+        summary, findings = parse_structured_narration(narration)
+    except GroqClientError as exc:
+        logger.warning("Risk narration unavailable: %s", exc)
+        return {
+            "agent": "risk",
+            "baseline_risk": computed,
+            "llm_baseline_risk": None,
+            "consistent": False,
+            "narration": "Narration unavailable: LLM request failed",
+            "summary": None,
+            "findings": [],
+            "raw_data": raw_data,
+        }
 
     match = BASELINE_RISK_RE.search(narration)
     if match:
@@ -115,5 +146,7 @@ async def run_risk_agent(
         "llm_baseline_risk": llm_baseline_risk,
         "consistent": consistent,
         "narration": narration,
+        "summary": summary,
+        "findings": findings,
         "raw_data": raw_data,
     }

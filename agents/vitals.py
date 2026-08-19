@@ -7,7 +7,7 @@ import warnings
 
 import httpx
 
-from llm_client import call_groq
+from llm_client import GroqClientError, call_groq, parse_structured_narration
 
 VITALS_SYSTEM_PROMPT = """
 ROLE
@@ -34,14 +34,14 @@ their persistence across hours, why this classification is consistent
 with the defined ruleset.
 
 TASKS
-1. Review the provided vitals data and flags
-2. Identify which specific signals are flagged abnormal and on how many
-   of the hours in the window
-3. Note any multi-signal combinations occurring on the same hours
-4. Write 2-4 sentences explaining why computed_verdict makes sense given
-   these specific values — cite actual numbers and hour counts precisely,
+1. Review the provided vitals data and flags as a whole
+2. Identify the 2-3 most clinically significant findings driving the
+   verdict -- you do not need to mention every signal, only the ones
+   that matter most. Cite actual numbers and hour counts precisely,
    counting directly from the data provided rather than estimating
-5. End with the verdict line
+3. Output the required SUMMARY/FINDING format explaining why
+   computed_verdict makes sense given those findings
+4. End with the verdict line
 
 OPERATING GUIDELINES
 Never state a different verdict than computed_verdict, even if you
@@ -49,6 +49,18 @@ personally think the pattern looks milder or more severe. The
 classification logic has already accounted for the exact project-defined
 thresholds and is consistent with the defined ruleset. Your role is
 explanation, not judgment.
+Format your response EXACTLY as follows, with no other text:
+
+SUMMARY: <one sentence, the single most important takeaway>
+FINDING: <signal name> — <specific value/flag> — <brief clinical note>
+FINDING: <signal name> — <specific value/flag> — <brief clinical note>
+FINDING: <signal name> — <specific value/flag> — <brief clinical note>
+
+Include exactly 2-4 FINDING lines, ordered by clinical importance, most
+important first. Each FINDING line must be a single line with no line
+breaks. Do not add any text before SUMMARY or after the last FINDING
+line, other than the required VERDICT/BASELINE RISK/TRAJECTORY line
+that follows this format block.
 
 CONSTRAINTS
 Never output a diagnosis (e.g. "this is sepsis") — only describe the
@@ -99,7 +111,25 @@ async def run_vitals_agent(
         "Here is this patient's vitals data:\n"
         f"{json.dumps(raw_data, indent=2)}"
     )
-    narration = await call_groq(VITALS_SYSTEM_PROMPT, user_message)
+    try:
+        narration = await call_groq(
+            VITALS_SYSTEM_PROMPT,
+            user_message,
+            request_context=f"vitals:{patient_id}",
+        )
+        summary, findings = parse_structured_narration(narration)
+    except GroqClientError as exc:
+        logger.warning("Vitals narration unavailable: %s", exc)
+        return {
+            "agent": "vitals",
+            "verdict": computed,
+            "llm_verdict": None,
+            "verdict_consistent": False,
+            "narration": "Narration unavailable: LLM request failed",
+            "summary": None,
+            "findings": [],
+            "raw_data": raw_data,
+        }
 
     match = VERDICT_RE.search(narration)
     if match:
@@ -121,5 +151,7 @@ async def run_vitals_agent(
         "llm_verdict": llm_verdict,
         "verdict_consistent": verdict_consistent,
         "narration": narration,
+        "summary": summary,
+        "findings": findings,
         "raw_data": raw_data,
     }

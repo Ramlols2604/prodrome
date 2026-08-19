@@ -7,7 +7,7 @@ import warnings
 
 import httpx
 
-from llm_client import call_groq
+from llm_client import GroqClientError, call_groq, parse_structured_narration
 
 LABS_SYSTEM_PROMPT = """
 ROLE
@@ -31,14 +31,15 @@ top-level "computed_verdict" field — THIS IS THE FINAL VERDICT. Do not
 recompute, second-guess, upgrade, or downgrade it.
 
 TASKS
-1. Review the provided labs data, flags, and labs_drawn_count
+1. Review the provided labs data, flags, and labs_drawn_count as a whole
 2. If very few labs were drawn, say so explicitly and note lower
    confidence
-3. Identify which specific labs are flagged abnormal and on how many
-   drawn hours -- count directly from the data provided, do not
-   estimate
-4. Write 2-4 sentences explaining why computed_verdict makes sense
-   given these specific values
+3. Identify the 2-3 most clinically significant findings driving the
+   verdict -- you do not need to mention every signal, only the ones
+   that matter most. Count drawn hours directly from the data provided,
+   do not estimate
+4. Output the required SUMMARY/FINDING format explaining why
+   computed_verdict makes sense given those findings
 5. End with the verdict line
 
 OPERATING GUIDELINES
@@ -47,6 +48,18 @@ classification logic has already accounted for the exact thresholds and
 is consistent with the defined ruleset. Your role is explanation, not
 judgment. When citing hour counts, use the exact counts from the data
 provided -- double-check against labs_drawn_count before finalizing.
+Format your response EXACTLY as follows, with no other text:
+
+SUMMARY: <one sentence, the single most important takeaway>
+FINDING: <signal name> — <specific value/flag> — <brief clinical note>
+FINDING: <signal name> — <specific value/flag> — <brief clinical note>
+FINDING: <signal name> — <specific value/flag> — <brief clinical note>
+
+Include exactly 2-4 FINDING lines, ordered by clinical importance, most
+important first. Each FINDING line must be a single line with no line
+breaks. Do not add any text before SUMMARY or after the last FINDING
+line, other than the required VERDICT/BASELINE RISK/TRAJECTORY line
+that follows this format block.
 
 CONSTRAINTS
 Never output a diagnosis. Never fabricate a data point not provided.
@@ -93,7 +106,25 @@ async def run_labs_agent(
         "Here is this patient's labs data:\n"
         f"{json.dumps(raw_data, indent=2)}"
     )
-    narration = await call_groq(LABS_SYSTEM_PROMPT, user_message)
+    try:
+        narration = await call_groq(
+            LABS_SYSTEM_PROMPT,
+            user_message,
+            request_context=f"labs:{patient_id}",
+        )
+        summary, findings = parse_structured_narration(narration)
+    except GroqClientError as exc:
+        logger.warning("Labs narration unavailable: %s", exc)
+        return {
+            "agent": "labs",
+            "verdict": computed,
+            "llm_verdict": None,
+            "verdict_consistent": False,
+            "narration": "Narration unavailable: LLM request failed",
+            "summary": None,
+            "findings": [],
+            "raw_data": raw_data,
+        }
 
     match = VERDICT_RE.search(narration)
     if match:
@@ -115,5 +146,7 @@ async def run_labs_agent(
         "llm_verdict": llm_verdict,
         "verdict_consistent": verdict_consistent,
         "narration": narration,
+        "summary": summary,
+        "findings": findings,
         "raw_data": raw_data,
     }
